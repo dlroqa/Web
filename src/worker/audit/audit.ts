@@ -1,0 +1,119 @@
+/**
+ * Audit event contract.
+ *
+ * Events are built only through `createAuditEvent`, which validates them at
+ * runtime. The shape is deliberately narrow so secrets have nowhere to hide:
+ * actions come from a fixed list, ids must look like ids, and metadata is a
+ * flat map of short scalar values whose keys may not look sensitive
+ * (password, token, cookie, secret, …). A violation throws: it is a
+ * programming error, caught by tests, not something to log around.
+ *
+ * Persistence: Phase 2 writes events to structured logs. Phase 3 adds a D1
+ * sink behind the same `AuditSink` interface.
+ */
+import { z } from "../../shared/zod";
+import { isErrorCode, type ErrorCode } from "../../shared/errors";
+import { isSensitiveKey, type Logger } from "../utils/log";
+import { randomId } from "../utils/random";
+
+export const AUDIT_ACTIONS = [
+  "auth.login.success",
+  "auth.login.failure",
+  "auth.logout",
+  "auth.passkey.add",
+  "auth.passkey.remove",
+  "auth.turnstile.failure",
+  "session.revoke",
+  "session.revoke_all",
+  "profile.create.request",
+  "profile.create.success",
+  "profile.create.failure",
+  "profile.update",
+  "profile.disable",
+  "profile.delete",
+  "provision.signature.failure",
+  "provision.replay.detected",
+  "admin.harness.register",
+  "admin.harness.disable",
+  "admin.account.suspend",
+  "security.origin.rejected",
+  "security.ratelimit.exceeded",
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+export type AuditActorType = "user" | "admin" | "system" | "anonymous";
+export type AuditResult = "success" | "failure" | "denied";
+export type AuditMetadataValue = string | number | boolean | null;
+
+const SafeId = z.string().regex(/^[a-z]{2,8}_[a-z0-9]{8,64}$/, "ids must be prefixed random identifiers");
+const MetadataKey = z
+  .string()
+  .regex(/^[a-z][a-zA-Z0-9]{0,39}$/)
+  .refine((key) => !isSensitiveKey(key), "sensitive metadata key");
+const MetadataValue = z.union([z.string().max(200), z.number().finite(), z.boolean(), z.null()]);
+
+const AuditEventSchema = z
+  .object({
+    id: SafeId,
+    timestamp: z.iso.datetime(),
+    actor: z.discriminatedUnion("type", [
+      z.object({ type: z.literal("user"), id: SafeId }).strict(),
+      z.object({ type: z.literal("admin"), id: SafeId }).strict(),
+      z.object({ type: z.literal("system"), id: z.string().regex(/^[a-z][a-z0-9-]{1,40}$/) }).strict(),
+      z.object({ type: z.literal("anonymous") }).strict(),
+    ]),
+    action: z.enum(AUDIT_ACTIONS),
+    target: z
+      .object({ type: z.enum(["user", "agent_profile", "session", "passkey", "harness", "provisioning_job"]), id: SafeId })
+      .strict()
+      .optional(),
+    requestId: SafeId,
+    result: z.enum(["success", "failure", "denied"]),
+    reason: z.custom<ErrorCode>(isErrorCode).optional(),
+    metadata: z.record(MetadataKey, MetadataValue).refine((m) => Object.keys(m).length <= 20, "too many metadata keys"),
+  })
+  .strict();
+
+export type AuditEvent = z.output<typeof AuditEventSchema>;
+
+export interface AuditEventInput {
+  actor: AuditEvent["actor"];
+  action: AuditAction;
+  target?: AuditEvent["target"];
+  requestId: string;
+  result: AuditResult;
+  /** A stable error code explaining a failure or denial. */
+  reason?: ErrorCode;
+  metadata?: Record<string, AuditMetadataValue>;
+}
+
+export class AuditContractError extends Error {
+  override readonly name = "AuditContractError";
+}
+
+export function createAuditEvent(input: AuditEventInput, now: () => Date = () => new Date()): AuditEvent {
+  const parsed = AuditEventSchema.safeParse({
+    id: randomId("aud"),
+    timestamp: now().toISOString(),
+    metadata: {},
+    ...input,
+  });
+  if (!parsed.success) {
+    // Report paths only; the rejected values may be the secret.
+    throw new AuditContractError(`invalid audit event: ${parsed.error.issues.map((i) => i.path.join(".")).join(", ")}`);
+  }
+  return parsed.data;
+}
+
+export interface AuditSink {
+  record(event: AuditEvent): Promise<void>;
+}
+
+/** Phase 2 sink: one structured log line per event. */
+export class LogAuditSink implements AuditSink {
+  constructor(private readonly logger: Logger) {}
+
+  async record(event: AuditEvent): Promise<void> {
+    this.logger.info("audit", { audit: event });
+  }
+}
