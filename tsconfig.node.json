@@ -1,8 +1,16 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["es2024"],
-    "types": ["node"]
+    "lib": [
+      "es2024"
+    ],
+    "types": [
+      "node"
+    ]
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "tests", "src/worker", "src/shared", "worker-configuration.d.ts"]
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "tests/build"
+  ]
 }

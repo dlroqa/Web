@@ -9,16 +9,19 @@
     "build": "vite build",
     "preview": "npm run build && vite preview",
     "typecheck": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run --project workers",
     "cf-typegen": "wrangler types",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build && npm run test:build",
+    "test:build": "vitest run --project build"
   },
   "dependencies": {
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.62.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -30,6 +33,7 @@
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
-    "workerd@1.20261001.1": true
+    "workerd@1.20261001.1": true,
+    "workerd@1.20260815.1": true
   }
 }

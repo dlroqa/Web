@@ -1,8 +1,16 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["es2024"],
-    "types": []
+    "lib": [
+      "es2024"
+    ],
+    "types": [
+      "vite/client"
+    ]
   },
-  "include": ["src/worker", "src/shared", "worker-configuration.d.ts"]
+  "include": [
+    "src/worker",
+    "src/shared",
+    "worker-configuration.d.ts"
+  ]
 }
