@@ -15,3 +15,6 @@ coverage/
 # Editor / OS
 .DS_Store
 *.log
+
+# TypeScript build caches
+*.tsbuildinfo

@@ -1,0 +1,33 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "lightagent-control",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2026-10-01",
+
+  // The React build is served as static assets. Only the API and health
+  // endpoints run the Worker first; every other path is an asset, with
+  // index.html as the SPA fallback.
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/health"]
+  },
+
+  "observability": { "enabled": true },
+
+  // Public, non-secret configuration only. Secrets are set with
+  // `wrangler secret put` (production/staging) or .dev.vars (local).
+  "vars": {
+    "ENVIRONMENT": "development"
+  },
+
+  "env": {
+    "staging": {
+      "name": "lightagent-control-staging",
+      "vars": { "ENVIRONMENT": "staging" }
+    },
+    "production": {
+      "name": "lightagent-control-production",
+      "vars": { "ENVIRONMENT": "production" }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local development. .dev.vars is gitignored.
+# Use development-only values. Never put staging or production secrets here.
+# Production/staging secrets: `wrangler secret put <NAME> --env <env>`.
+
+BETTER_AUTH_SECRET=
+TURNSTILE_SECRET=
+GOOGLE_CLIENT_SECRET=
+GITHUB_CLIENT_SECRET=
+LIGHTAGENT_SIGNING_PRIVATE_KEY=
