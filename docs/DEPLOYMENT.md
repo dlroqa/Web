@@ -27,6 +27,12 @@ npx wrangler deploy --env staging --dry-run
 npx wrangler deploy --env staging
 ```
 
+Apply pending D1 migrations **before** deploying code that depends on them:
+
+```sh
+npm run db:migrate:staging        # wrangler d1 migrations apply DB --env staging --remote
+```
+
 Never run a production deploy from a build made without
 `CLOUDFLARE_ENV=production`, and never without explicit approval.
 
@@ -140,3 +146,45 @@ Response headers after Phase 2:
 Not verifiable on staging yet: rate-limit bindings and Turnstile are not
 attached to any endpoint (covered by unit tests; verified on staging when
 login/signup/provisioning ship). HSTS is intentionally off.
+
+### 2026-10-03: Phase 3 D1
+
+- Created D1 databases `lightagent-control-dev`, `-staging`, and `-production`
+  (ids in [DATABASE.md](DATABASE.md)) in the Worker's Cloudflare account. An
+  unrelated pre-existing database in the account (`torvid`) was not touched.
+- Applied `0001_initial.sql` to **staging only**: 6 STRICT tables, 11 indexes,
+  9 triggers, `foreign_keys = 1`. Re-applying reports "No migrations to apply".
+  Production has no migrations applied and no data.
+- Deployed `main` (commit `f513ea2`) as version
+  `146fffa5-578a-4b75-a5ac-51aa5fecf760`, with `DB` bound only to
+  `lightagent-control-staging`.
+
+Worker→D1 storage smoke: a temporary route on an unmerged branch
+(`smoke/d1-staging`, commit `30f76e0`) was deployed briefly as version
+`f0474181`. It was gated by a one-time random `SMOKE_TOKEN` staging secret
+(404 without it), took no input, and ran a fixed sequence through the real
+repositories. All 16 checks passed:
+
+| Check | Result |
+|---|---|
+| duplicate `auth_user_id` → UniqueConflict | pass |
+| new profile `pending`, revocation_version 1 | pass |
+| cross-tenant read / rename / revoke → null / null / NotFound | pass |
+| owner read | pass |
+| `pending → active` rejected; `pending → provisioning → active` | pass |
+| 10 concurrent revocation increments → 10 distinct values, final 11 | pass |
+| suspension bumps revocation_version | pass |
+| same idempotency key + same request → same job | pass |
+| same key + different hash → IdempotencyConflict | pass |
+| nonce replay detected | pass |
+| audit event persisted and read back; UPDATE rejected (append-only) | pass |
+| all smoke rows deleted (every table back to 0 rows) | pass |
+
+Afterwards the secret was deleted (staging has **no** secrets), the branch was
+deleted, `main` was redeployed (the bundle contains no smoke code), and
+`/api/__smoke/d1` returns the normal JSON 404.
+
+Post-teardown staging checks: documents serve per-request nonces that match
+the header; `/health` ok; API 404s are JSON; foreign `Origin` POST → 403;
+missing asset → 404; staging D1 has 0 rows; real-browser check on 5 routes
+plus a deep refresh: **0 CSP violations**.
