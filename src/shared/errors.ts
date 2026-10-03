@@ -13,6 +13,7 @@ export const ERROR_DEFINITIONS = {
   INVALID_REQUEST: { status: 400, message: "The request is invalid." },
   UNSUPPORTED_MEDIA_TYPE: { status: 415, message: "Unsupported content type." },
   PAYLOAD_TOO_LARGE: { status: 413, message: "The request body is too large." },
+  CONFLICT: { status: 409, message: "This change conflicts with the current state." },
   RATE_LIMITED: { status: 429, message: "Too many requests. Try again shortly." },
   TURNSTILE_FAILED: { status: 403, message: "Human verification failed. Please try again." },
   PROFILE_LIMIT_REACHED: { status: 409, message: "You have reached the agent limit." },

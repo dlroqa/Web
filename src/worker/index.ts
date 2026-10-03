@@ -7,6 +7,7 @@
  */
 import { handleApi, isApiPath } from "./api/router";
 import { ConfigError, loadConfig, type AppConfig } from "./config/config";
+import { DbError, toApiError } from "./db/errors";
 import { newRequestId, type RequestContext } from "./http/context";
 import { ApiError } from "./http/errors";
 import { jsonError } from "./http/responses";
@@ -59,7 +60,9 @@ export function createWorker(options: WorkerOptions) {
       let response: Response;
       try {
         response = isApi ? await handleApi(context) : await serveSite(context, options.cspMode);
-      } catch (error) {
+      } catch (thrown) {
+        // Database errors become stable API errors; raw SQL text never escapes.
+        const error = thrown instanceof DbError ? toApiError(thrown) : thrown;
         if (error instanceof ApiError) {
           logger.warn("request.rejected", { code: error.code, reason: error.logReason });
           response = isApi ? jsonError(error, meta) : plainError(error.status, config, url);
