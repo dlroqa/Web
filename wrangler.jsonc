@@ -4,30 +4,77 @@
   "main": "./src/worker/index.ts",
   "compatibility_date": "2026-10-01",
 
-  // The React build is served as static assets. Only the API and health
-  // endpoints run the Worker first; every other path is an asset, with
-  // index.html as the SPA fallback.
+  // HTML documents and the API run through the Worker so every document gets
+  // a fresh CSP nonce. Content-hashed build output under /assets/* is served
+  // directly by the asset service. Missing assets are 404s, never the SPA
+  // shell; the Worker performs the SPA fallback itself (with CSP).
   "assets": {
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/health"]
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+    "run_worker_first": ["/*", "!/assets/*"]
   },
 
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true }
+  },
 
   // Public, non-secret configuration only. Secrets are set with
-  // `wrangler secret put` (production/staging) or .dev.vars (local).
+  // `wrangler secret put` (staging/production) or .dev.vars (local).
+  // `vars` and `ratelimits` are not inherited by named environments, so each
+  // environment repeats them with its own values.
   "vars": {
-    "ENVIRONMENT": "development"
+    "ENVIRONMENT": "development",
+    "TRUSTED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
+    "HSTS_MAX_AGE": "0",
+    "TURNSTILE_EXPECTED_HOSTNAMES": "localhost,127.0.0.1"
   },
+
+  // Cloudflare rate limiters, one per policy. namespace_id is account-scoped,
+  // so each environment uses its own range to keep counters separate.
+  "ratelimits": [
+    { "name": "RL_LOGIN", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+    { "name": "RL_SIGNUP", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } },
+    { "name": "RL_RECOVERY", "namespace_id": "1003", "simple": { "limit": 3, "period": 60 } },
+    { "name": "RL_PROVISION", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
+    { "name": "RL_READ", "namespace_id": "1005", "simple": { "limit": 120, "period": 60 } }
+  ],
 
   "env": {
     "staging": {
       "name": "lightagent-control-staging",
-      "vars": { "ENVIRONMENT": "staging" }
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "TRUSTED_ORIGINS": "https://lightagent-control-staging.eddelaroca.workers.dev",
+        "HSTS_MAX_AGE": "0",
+        "TURNSTILE_EXPECTED_HOSTNAMES": "lightagent-control-staging.eddelaroca.workers.dev"
+      },
+      "ratelimits": [
+        { "name": "RL_LOGIN", "namespace_id": "2001", "simple": { "limit": 10, "period": 60 } },
+        { "name": "RL_SIGNUP", "namespace_id": "2002", "simple": { "limit": 5, "period": 60 } },
+        { "name": "RL_RECOVERY", "namespace_id": "2003", "simple": { "limit": 3, "period": 60 } },
+        { "name": "RL_PROVISION", "namespace_id": "2004", "simple": { "limit": 5, "period": 60 } },
+        { "name": "RL_READ", "namespace_id": "2005", "simple": { "limit": 120, "period": 60 } }
+      ]
     },
     "production": {
       "name": "lightagent-control-production",
-      "vars": { "ENVIRONMENT": "production" }
+      // TRUSTED_ORIGINS and TURNSTILE_EXPECTED_HOSTNAMES stay empty until the
+      // production hostname is approved; empty fails closed (all state-changing
+      // requests and all Turnstile checks are rejected).
+      "vars": {
+        "ENVIRONMENT": "production",
+        "TRUSTED_ORIGINS": "",
+        "HSTS_MAX_AGE": "0",
+        "TURNSTILE_EXPECTED_HOSTNAMES": ""
+      },
+      "ratelimits": [
+        { "name": "RL_LOGIN", "namespace_id": "3001", "simple": { "limit": 10, "period": 60 } },
+        { "name": "RL_SIGNUP", "namespace_id": "3002", "simple": { "limit": 5, "period": 60 } },
+        { "name": "RL_RECOVERY", "namespace_id": "3003", "simple": { "limit": 3, "period": 60 } },
+        { "name": "RL_PROVISION", "namespace_id": "3004", "simple": { "limit": 5, "period": 60 } },
+        { "name": "RL_READ", "namespace_id": "3005", "simple": { "limit": 120, "period": 60 } }
+      ]
     }
   }
 }

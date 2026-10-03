@@ -1,0 +1,8 @@
+# Headers for static files served directly by Workers Static Assets.
+# HTML documents never come from here: the Worker serves them with a nonce CSP.
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+  Cross-Origin-Resource-Policy: same-origin
+  Referrer-Policy: strict-origin-when-cross-origin

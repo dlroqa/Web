@@ -8,6 +8,9 @@ export default defineConfig({
   // the Worker only; an empty prefix list would expose everything, so use a
   // prefix nothing is allowed to use.
   envPrefix: "LIGHTAGENT_PUBLIC_",
+  // Vite marks the tags it emits (and, in dev, the <style> elements it injects)
+  // with this placeholder; the Worker replaces it with a per-response nonce.
+  html: { cspNonce: "LIGHTAGENT_CSP_NONCE" },
   build: {
     sourcemap: false,
   },
