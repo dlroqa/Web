@@ -8,11 +8,13 @@
  * (password, token, cookie, secret, …). A violation throws: it is a
  * programming error, caught by tests, not something to log around.
  *
- * Persistence: Phase 2 writes events to structured logs. Phase 3 adds a D1
- * sink behind the same `AuditSink` interface.
+ * Persistence: `D1AuditSink` (db/audit.ts) stores events in D1;
+ * `LogAuditSink` writes structured log lines. `AuditRecorder` chooses
+ * fail-closed or best-effort recording per operation.
  */
 import { z } from "../../shared/zod";
 import { isErrorCode, type ErrorCode } from "../../shared/errors";
+import { SecurityMetadataSchema, type SecurityMetadata } from "../db/json";
 import { isSensitiveKey, type Logger } from "../utils/log";
 import { randomId } from "../utils/random";
 
@@ -71,6 +73,7 @@ const AuditEventSchema = z
     result: z.enum(["success", "failure", "denied"]),
     reason: z.custom<ErrorCode>(isErrorCode).optional(),
     metadata: z.record(MetadataKey, MetadataValue).refine((m) => Object.keys(m).length <= 20, "too many metadata keys"),
+    security: SecurityMetadataSchema.default({}),
   })
   .strict();
 
@@ -85,6 +88,8 @@ export interface AuditEventInput {
   /** A stable error code explaining a failure or denial. */
   reason?: ErrorCode;
   metadata?: Record<string, AuditMetadataValue>;
+  /** Keyed source hash and coarse location (see security/source-identity.ts). */
+  security?: SecurityMetadata;
 }
 
 export class AuditContractError extends Error {

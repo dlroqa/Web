@@ -39,6 +39,8 @@ export async function handleApi(ctx: RequestContext): Promise<Response> {
         reason: "FORBIDDEN",
         metadata: { method: request.method },
       });
+      // Logged, not stored in D1: unauthenticated denials are high-volume and
+      // must not let anyone drive unbounded database writes.
       ctx.waitUntil(new LogAuditSink(ctx.logger).record(event));
       throw new ApiError("FORBIDDEN", { logReason: `origin rejected: ${decision.reason}` });
     }

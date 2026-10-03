@@ -12,7 +12,8 @@ export type SecretName =
   | "BETTER_AUTH_SECRET"
   | "GOOGLE_CLIENT_SECRET"
   | "GITHUB_CLIENT_SECRET"
-  | "LIGHTAGENT_SIGNING_PRIVATE_KEY";
+  | "LIGHTAGENT_SIGNING_PRIVATE_KEY"
+  | "AUDIT_SOURCE_HMAC_KEY";
 
 /** The secret's value, or undefined when it is unset or empty. */
 export function readSecret(env: Env, name: SecretName): string | undefined {

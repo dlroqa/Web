@@ -7,3 +7,6 @@ TURNSTILE_SECRET=
 GOOGLE_CLIENT_SECRET=
 GITHUB_CLIENT_SECRET=
 LIGHTAGENT_SIGNING_PRIVATE_KEY=
+# Keyed hash for audit source addresses (32+ random bytes, base64). Optional;
+# when unset, audit events carry no source hash.
+AUDIT_SOURCE_HMAC_KEY=
