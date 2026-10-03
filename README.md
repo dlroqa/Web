@@ -15,7 +15,8 @@ credential. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 |---|---|---|
 | 0 | Lightagent analysis ([CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md)) | done |
 | 1 | Cloudflare scaffold (React, Vite, Worker, Static Assets) | done |
-| 2 | Security foundation | next |
+| 2 | Security foundation ([docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md)) | done |
+| 3 | D1 schema and repositories | next |
 
 ## Requirements
 
@@ -32,14 +33,22 @@ credential. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 npm ci            # install from the lockfile
 npm run dev       # Vite dev server with the Worker running in workerd
 npm run typecheck # client, worker, and tooling projects
-npm test          # Vitest
+npm test          # Vitest inside workerd (unit + security tests)
 npm run build     # client assets + Worker bundle into dist/
-npm run check     # typecheck + test + build
+npm run test:build  # checks on dist/ (no inline JS, no secrets, production CSP)
+npm run check     # typecheck + test + build + test:build
 npm run cf-typegen  # regenerate worker-configuration.d.ts after editing wrangler.jsonc
 ```
 
-Routing: `/api/*` and `/health` run the Worker; every other path is a static
-asset with `index.html` as the SPA fallback (`wrangler.jsonc` → `assets`).
+Routing: hashed files under `/assets/*` are served directly by Workers Static
+Assets. Everything else runs the Worker: `/api/*` and `/health` return JSON,
+and other paths get the SPA document with a per-response CSP nonce (see
+[docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md)).
+
+Tests run inside workerd via `@cloudflare/vitest-pool-workers`. Its bundled
+runtime only supports compatibility dates up to 2026-08-22, so
+`vitest.config.ts` pins that date for tests; deployed Workers use
+`wrangler.jsonc`'s date and are covered by staging smoke tests.
 
 ## Environments
 
