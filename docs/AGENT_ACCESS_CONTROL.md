@@ -29,8 +29,8 @@ operator API, or any Lightagent credential to the browser.
 ## 2. Ownership model
 
 ```text
-users_profile (status)
- └── agent_profiles (user_id, status, harness_id, access_generation, permissions)
+user_profiles (status)
+ └── agent_profiles (user_id, status, harness_id, revocation_version, permissions)
        └── on harness: profiles/<agent_profile.id>/
              ├── sessions/    conversation history
              ├── memory/
@@ -55,7 +55,7 @@ same guard, in this order, and fails closed:
 | # | Check | Failure |
 |---|---|---|
 | 1 | Valid server-side session | `401 AUTH_REQUIRED` |
-| 2 | `users_profile.status = 'active'` | `403 ACCOUNT_DISABLED` |
+| 2 | `user_profiles.status = 'active'` | `403 ACCOUNT_DISABLED` |
 | 3 | Profile exists **and** `agent_profiles.user_id = session.user_id` (single query, both predicates) | `404 NOT_FOUND` |
 | 4 | `agent_profiles.status = 'active'` (for invocation; reads allow any status) | `409 AGENT_UNAVAILABLE` |
 | 5 | Required capability is in the role's permissions **and** in the profile's granted permissions | `403 FORBIDDEN` |
@@ -100,7 +100,7 @@ Flow per request:
      "operation": "agent.invoke",
      "audience": "hns_…",
      "subject": { "userId": "usr_…", "profileId": "agt_…" },
-     "accessGeneration": 3,
+     "revocationVersion": 3,
      "permissions": { "chat": true, "memory": true, "rag": true, "mcp": false },
      "issuedAt": 1791063000,
      "expiresAt": 1791063060
@@ -110,7 +110,7 @@ Flow per request:
 3. Worker sends it to the harness's **tenant gateway**, a new Lightagent
    endpoint separate from the operator API (e.g. `/v1/tenant/runs`).
 4. The tenant gateway verifies signature, timestamp, nonce, `audience` (its
-   own harness id), and `accessGeneration`, then runs **only** against
+   own harness id), and `revocationVersion`, then runs **only** against
    `subject.profileId`. It ignores any `profile`, `cwd`, model base URL, or
    permission fields from anywhere else.
 5. Responses and SSE events are schema-validated by the Worker before being
@@ -129,7 +129,7 @@ the Worker) justifies it, and only under all of these constraints:
 - Issued by the Worker after the §3 guard, via
   `POST /api/agent-profiles/:id/access-token`.
 - Ed25519-signed by the Worker; claims: `aud` (harness id), `sub` (profile id),
-  `uid`, `scope` (e.g. `agent:chat`), `gen` (access generation), `jti`,
+  `uid`, `scope` (e.g. `agent:chat`), `gen` (revocation version), `jti`,
   `exp` ≤ 5 minutes. Not refreshable without a new Worker request.
 - Delivered in the response body for in-memory use only; never stored in
   `localStorage`, `sessionStorage`, IndexedDB, or a readable cookie.
@@ -190,7 +190,7 @@ Made in the Lightagent repository as a separate, additive phase:
 
 ## 8. Revocation
 
-The control plane keeps `agent_profiles.access_generation` (integer). Every
+The control plane keeps `agent_profiles.revocation_version` (integer). Every
 signed invocation carries it; the harness stores the highest generation seen
 per profile and rejects lower ones.
 
@@ -209,9 +209,11 @@ Version 1 does not ship invocation, but it must:
 
 - Put the §3 guard in one function and use it for every `/api/agent-profiles/*`
   route (read, update, delete, status).
-- Include in the D1 schema: `users_profile.status`, `agent_profiles.user_id`,
-  `.status`, `.harness_id`, `.access_generation`, `.permissions_json`
-  (granted ceiling), `.disabled_at`.
+- Include in the D1 schema: `user_profiles.status`, `agent_profiles.user_id`,
+  `.status`, `.harness_id`, `.revocation_version` (starts at 1, only
+  increases), and `.permissions_json` (granted ceiling). Done in Phase 3; see
+  [DATABASE.md](DATABASE.md). When a profile was disabled is recorded in the
+  audit log rather than a `disabled_at` column.
 - Include `audience` (harness id) in the signed provisioning payload.
 - Store the per-profile permission ceiling chosen by server policy at creation.
 - Ship the mandatory tests in §10 that apply to existing routes.
@@ -236,7 +238,7 @@ before the corresponding feature ships.
   memory, RAG, or workspace (harness-side test).
 - **XTEN-03**† Foreign `sessionId` under own profile → 404.
 - **XTEN-04**† Command with `audience` of harness A rejected by harness B.
-- **REV-01**† Command with stale `accessGeneration` rejected after disable.
+- **REV-01**† Command with stale `revocationVersion` rejected after disable.
 - **REV-02**† Revoked session cannot start or continue a proxied run.
 - **REV-03**† Expired scoped token (§4.2) rejected by the tenant gateway.
 - **ISO-01**† Tool ceiling: profile without `shell` cannot run `terminal.run`

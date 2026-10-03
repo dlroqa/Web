@@ -16,7 +16,8 @@ credential. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 | 0 | Lightagent analysis ([CURRENT_ARCHITECTURE.md](CURRENT_ARCHITECTURE.md)) | done |
 | 1 | Cloudflare scaffold (React, Vite, Worker, Static Assets) | done |
 | 2 | Security foundation ([docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md)) | done |
-| 3 | D1 schema and repositories | next |
+| 3 | D1 schema and repositories ([docs/DATABASE.md](docs/DATABASE.md)) | done |
+| 4 | Authentication (Better Auth) | next |
 
 ## Requirements
 
@@ -33,10 +34,11 @@ credential. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 npm ci            # install from the lockfile
 npm run dev       # Vite dev server with the Worker running in workerd
 npm run typecheck # client, worker, and tooling projects
-npm test          # Vitest inside workerd (unit + security tests)
+npm test          # Vitest: workerd (unit, security, D1) + static source checks
 npm run build     # client assets + Worker bundle into dist/
 npm run test:build  # checks on dist/ (no inline JS, no secrets, production CSP)
 npm run check     # typecheck + test + build + test:build
+npm run db:migrate:local    # apply migrations to the local dev D1
 npm run cf-typegen  # regenerate worker-configuration.d.ts after editing wrangler.jsonc
 ```
 
