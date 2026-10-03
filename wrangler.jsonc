@@ -30,6 +30,17 @@
     "TURNSTILE_EXPECTED_HOSTNAMES": "localhost,127.0.0.1"
   },
 
+  // D1: one database per environment. Database ids are not secrets. Each
+  // environment binds only its own database; d1_databases is not inherited.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "lightagent-control-dev",
+      "database_id": "773b82f0-29e6-446e-9d26-6394d0837596",
+      "migrations_dir": "migrations"
+    }
+  ],
+
   // Cloudflare rate limiters, one per policy. namespace_id is account-scoped,
   // so each environment uses its own range to keep counters separate.
   "ratelimits": [
@@ -49,6 +60,14 @@
         "HSTS_MAX_AGE": "0",
         "TURNSTILE_EXPECTED_HOSTNAMES": "lightagent-control-staging.eddelaroca.workers.dev"
       },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "lightagent-control-staging",
+          "database_id": "3cc0724d-fb83-4477-ac0f-5aee58606fdf",
+          "migrations_dir": "migrations"
+        }
+      ],
       "ratelimits": [
         { "name": "RL_LOGIN", "namespace_id": "2001", "simple": { "limit": 10, "period": 60 } },
         { "name": "RL_SIGNUP", "namespace_id": "2002", "simple": { "limit": 5, "period": 60 } },
@@ -68,6 +87,14 @@
         "HSTS_MAX_AGE": "0",
         "TURNSTILE_EXPECTED_HOSTNAMES": ""
       },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "lightagent-control-production",
+          "database_id": "581f46bc-733c-4d9f-87c9-a5bb90716986",
+          "migrations_dir": "migrations"
+        }
+      ],
       "ratelimits": [
         { "name": "RL_LOGIN", "namespace_id": "3001", "simple": { "limit": 10, "period": 60 } },
         { "name": "RL_SIGNUP", "namespace_id": "3002", "simple": { "limit": 5, "period": 60 } },

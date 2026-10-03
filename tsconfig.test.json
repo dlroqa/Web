@@ -1,8 +1,23 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["es2024"],
-    "types": ["@cloudflare/vitest-pool-workers/types", "vite/client"]
+    "lib": [
+      "es2024"
+    ],
+    "types": [
+      "@cloudflare/vitest-pool-workers/types",
+      "vite/client"
+    ]
   },
-  "include": ["tests/unit", "tests/security", "tests/integration", "tests/contracts", "tests/helpers", "src/worker", "src/shared", "worker-configuration.d.ts"]
+  "include": [
+    "tests/unit",
+    "tests/security",
+    "tests/integration",
+    "tests/db",
+    "tests/contracts",
+    "tests/helpers",
+    "src/worker",
+    "src/shared",
+    "worker-configuration.d.ts"
+  ]
 }

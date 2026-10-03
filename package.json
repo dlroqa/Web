@@ -9,10 +9,12 @@
     "build": "vite build",
     "preview": "npm run build && vite preview",
     "typecheck": "tsc -b",
-    "test": "vitest run --project workers",
+    "test": "vitest run --project workers --project static",
     "cf-typegen": "wrangler types",
     "check": "npm run typecheck && npm test && npm run build && npm run test:build",
-    "test:build": "vitest run --project build"
+    "test:build": "vitest run --project build",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:staging": "wrangler d1 migrations apply DB --env staging --remote"
   },
   "dependencies": {
     "react": "^19.3.0",
