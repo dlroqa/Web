@@ -274,3 +274,39 @@ GitHub user (kept `pending`); see [OPERATIONS.md](OPERATIONS.md#staging-test-acc
 Staging state: `usr_zabx…` active, `usr_bcv3…` pending, 0 sessions,
 0 passkeys, 0 verification rows, no provider tokens, 0 agent profiles,
 provisioning jobs, or harnesses. Production untouched.
+
+### 2026-10-04: Phase 5 account and security UI (staging)
+
+Branch `phase-5-account-ui` (from `main` `c9204a2`). Validated with version
+`6371623d` (commit `aaa8d06`); now running `fd978898-93b3-429d-b911-28031ec98901`
+(tag `phase5-4493cc1`, which only adds page titles to the status screens).
+Before each deploy: typecheck, 516 tests, staging build, 10 build-output
+tests; `npm audit --omit=dev` 0 vulnerabilities. No migration, secret, or
+binding change.
+
+Real browsers, two throwaway profiles (deleted afterwards), same monitoring
+as Phase 4:
+
+| Check | Result |
+|---|---|
+| Signed out, direct `/settings` | redirected to `/login?returnTo=%2Fsettings` |
+| **User B (GitHub, pending)**: sign-in | identity established (same `usr_bcv3…`, no new user); approval screen |
+| User B: `/api/me`, `/api/session` | `pending` |
+| User B: every active API (overview, agents, security reads, display name, session revoke, revoke-all, passkey enrolment) | `403 ACCOUNT_PENDING` |
+| User B: direct navigation to `/dashboard`, `/agents`, `/security`, `/sessions`, `/settings`, unknown path | only "Your account is awaiting approval"; no app navigation |
+| **User A (Google, active)**: same paths | each page renders with navigation and its own title; unknown path → "Page not found"; `/` → dashboard |
+| Dashboard data | display name, status, sign-in methods, session count and end time, agent count 0; no ids, tokens, or infrastructure |
+| Security | sign-in methods, activity labels; passkey added and removed (audit rows with fingerprint) |
+| Sessions | two sessions; one revoked from the list (audit target = session id); sign out everywhere → `/login?reason=signed-out`, cookie expired, stale cookies rejected |
+| Settings | empty name rejected in the browser (no request); save → `200`; audit `account.profile.update` with `{field}` only |
+| Session ended (revoked by the operator CLI) | "Check again" → `/login` with "Your session expired. Please sign in again." |
+| Cookie | session cookie `Max-Age` = 24 h (`expires` = sign-in + 24 h) |
+| Storage | nothing in localStorage, sessionStorage, or `document.cookie` |
+| CSP / console | 0 violations, 0 page errors; the UI itself logged no console errors (all errors were deliberate negative probes) |
+| Logs | none of 24 sensitive patterns (incl. display names) |
+| Accessibility (login, real browser) | `lang`, one `main`, one `h1`, titled; all controls named, inputs labelled, decorative SVGs hidden; no target < 44 px; tab order matches layout with a 3 px focus outline; theme contrast ≥ 4.5:1 (text) in light and dark |
+| Production | untouched (404) |
+
+Final staging state: `usr_zabx…` active, `usr_bcv3…` pending, 0 sessions,
+0 passkeys, 0 verification rows, no provider tokens, 0 agent profiles,
+provisioning jobs, or harnesses; 43 audit rows, none with emails or tokens.
