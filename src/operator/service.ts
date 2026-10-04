@@ -159,7 +159,7 @@ export class OperatorService {
         reason: "CONFLICT",
         metadata: { reason, from, to: spec.to, channel: operator.channel },
       });
-      throw new OperatorError("INVALID_TRANSITION", `cannot ${operation} a ${from} account`);
+      throw new OperatorError("INVALID_TRANSITION", `cannot ${operation}: the account is ${from}`);
     }
 
     const event = this.event(operator, {
