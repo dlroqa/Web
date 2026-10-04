@@ -13,6 +13,13 @@ import { randomBase64 } from "../utils/random";
 
 export type CspMode = "production" | "development";
 
+/**
+ * Cloudflare Turnstile (login page): its script and challenge iframe. This is
+ * the only third-party origin. OAuth sign-in is a top-level navigation to
+ * Google/GitHub, which CSP does not govern, so no provider origin is listed.
+ */
+export const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
 /** Placeholder Vite writes into nonce attributes (vite.config.ts html.cspNonce). */
 export const CSP_NONCE_PLACEHOLDER = "LIGHTAGENT_CSP_NONCE";
 
@@ -33,14 +40,14 @@ export function documentCsp(nonce: string, mode: CspMode): string {
     ["object-src", ["'none'"]],
     ["frame-ancestors", ["'none'"]],
     ["form-action", ["'self'"]],
-    ["script-src", ["'self'", `'nonce-${nonce}'`]],
+    ["script-src", ["'self'", `'nonce-${nonce}'`, TURNSTILE_ORIGIN]],
     ["style-src", mode === "development" ? ["'self'", `'nonce-${nonce}'`] : ["'self'"]],
     ["img-src", ["'self'", "data:"]],
     ["font-src", ["'self'"]],
     ["connect-src", ["'self'"]],
     ["manifest-src", ["'self'"]],
     ["worker-src", ["'self'"]],
-    ["frame-src", ["'none'"]],
+    ["frame-src", [TURNSTILE_ORIGIN]],
   ];
   return directives.map(([name, sources]) => `${name} ${sources.join(" ")}`).join("; ");
 }

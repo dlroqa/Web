@@ -94,6 +94,13 @@ describe("production document policy", () => {
     expect(parsed.get("connect-src")).toEqual(["'self'"]);
     expect(parsed.get("script-src")?.[0]).toBe("'self'");
     expect(parsed.get("script-src")?.[1]).toMatch(/^'nonce-[A-Za-z0-9+/]{22}=='$/);
+    // The only third-party source: Cloudflare Turnstile, exact origin.
+    expect(parsed.get("script-src")?.slice(2)).toEqual(["https://challenges.cloudflare.com"]);
+    expect(parsed.get("frame-src")).toEqual(["https://challenges.cloudflare.com"]);
+  });
+
+  it("lists no identity-provider origins (OAuth is a top-level navigation)", () => {
+    expect(csp).not.toMatch(/google|github|googleapis/);
   });
 
   it("never allows eval, inline code, or wildcard sources", () => {
