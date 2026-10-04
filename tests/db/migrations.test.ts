@@ -3,7 +3,19 @@ import { describe, expect, it } from "vitest";
 
 const db = (): D1Database => env.DB;
 
-const EXPECTED_TABLES = ["agent_profiles", "audit_events", "harnesses", "provisioning_jobs", "provisioning_nonces", "user_profiles"];
+const EXPECTED_TABLES = [
+  "account",
+  "agent_profiles",
+  "audit_events",
+  "harnesses",
+  "passkey",
+  "provisioning_jobs",
+  "provisioning_nonces",
+  "session",
+  "user",
+  "user_profiles",
+  "verification",
+];
 
 async function objects(type: string): Promise<string[]> {
   const { results } = await db()
@@ -16,17 +28,17 @@ async function objects(type: string): Promise<string[]> {
 describe("migrations", () => {
   it("create every application table, index, and trigger", async () => {
     expect(await objects("table")).toEqual(EXPECTED_TABLES);
-    expect((await objects("index")).length).toBeGreaterThanOrEqual(11);
+    expect((await objects("index")).length).toBeGreaterThanOrEqual(17);
     expect(await objects("trigger")).toContain("agent_profiles_status_transition");
     expect(await objects("trigger")).toContain("audit_events_append_only");
   });
 
   it("record the applied migration and are a no-op when re-applied", async () => {
     const before = await db().prepare(`SELECT name FROM d1_migrations ORDER BY id`).all<{ name: string }>();
-    expect(before.results.map((r) => r.name)).toEqual(["0001_initial.sql"]);
+    expect(before.results.map((r) => r.name)).toEqual(["0001_initial.sql", "0002_better_auth.sql"]);
     await applyD1Migrations(env.DB, Reflect.get(env, "TEST_MIGRATIONS") as D1Migration[]);
     const after = await db().prepare(`SELECT COUNT(*) AS n FROM d1_migrations`).first<{ n: number }>();
-    expect(after?.n).toBe(1);
+    expect(after?.n).toBe(2);
     expect(await objects("table")).toEqual(EXPECTED_TABLES);
   });
 

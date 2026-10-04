@@ -14,9 +14,13 @@
     "check": "npm run typecheck && npm test && npm run build && npm run test:build",
     "test:build": "vitest run --project build",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:migrate:staging": "wrangler d1 migrations apply DB --env staging --remote"
+    "db:migrate:staging": "wrangler d1 migrations apply DB --env staging --remote",
+    "auth:schema": "esbuild scripts/auth-schema.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=node_modules/.cache/lightagent/auth-schema.mjs && node node_modules/.cache/lightagent/auth-schema.mjs"
   },
   "dependencies": {
+    "@better-auth/passkey": "1.7.7",
+    "@simplewebauthn/browser": "13.3.0",
+    "better-auth": "1.7.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zod": "^4.6.5"
