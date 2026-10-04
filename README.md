@@ -17,7 +17,8 @@ credential. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 | 1 | Cloudflare scaffold (React, Vite, Worker, Static Assets) | done |
 | 2 | Security foundation ([docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md)) | done |
 | 3 | D1 schema and repositories ([docs/DATABASE.md](docs/DATABASE.md)) | done |
-| 4 | Authentication (Better Auth) | next |
+| 4 | Authentication: Better Auth, OAuth, passkeys ([docs/AUTHENTICATION.md](docs/AUTHENTICATION.md)) | done (staging OAuth credentials pending) |
+| 5 | Account UI | next |
 
 ## Requirements
 
@@ -39,6 +40,7 @@ npm run build     # client assets + Worker bundle into dist/
 npm run test:build  # checks on dist/ (no inline JS, no secrets, production CSP)
 npm run check     # typecheck + test + build + test:build
 npm run db:migrate:local    # apply migrations to the local dev D1
+npm run auth:schema -- check     # committed migrations satisfy the pinned Better Auth
 npm run cf-typegen  # regenerate worker-configuration.d.ts after editing wrangler.jsonc
 ```
 

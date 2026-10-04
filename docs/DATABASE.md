@@ -38,6 +38,7 @@ Rules:
 - Files are applied in filename order (`0001_…`, `0002_…`) and recorded in
   `d1_migrations`; re-applying is a no-op.
 - Tests apply the real migration files to a fresh D1 (`tests/helpers/apply-migrations.ts`).
+- Applied files are hash-locked (`tests/static/migrations.test.ts`).
 - Migrations must be backwards compatible with the deployed Worker (expand,
   deploy, then contract in a later migration).
 
@@ -282,11 +283,25 @@ environment yet. When unset, events carry no source hash. To enable, generate
 | `audit_events` | 1 year; then delete in batches (deletes are allowed, updates are not) | future scheduled cleanup; account deletion follows the policy in the directive (§74) |
 | `user_profiles`, `agent_profiles` | life of the account; revoked profiles kept for audit until account deletion | account-deletion flow (future) |
 
-## Better Auth integration point (Phase 4)
+## Better Auth tables (migration 0002)
 
-Better Auth owns its own tables (users, sessions, accounts, passkeys,
-verification), generated into a **new migration** when Phase 4 starts.
-Application tables reference the auth user only through
-`user_profiles.auth_user_id` (opaque text, unique). On first successful
-sign-in the Worker creates the `user_profiles` row; every later request
-resolves `session → auth_user_id → user_profiles.id` server-side.
+`0002_better_auth.sql` holds Better Auth 1.7.7's core schema plus the passkey
+plugin, generated from the Worker's exact options
+(`npm run auth:schema -- generate`) and then reviewed. `tests/static/auth-schema.test.ts`
+proves the committed schema satisfies the pinned version.
+
+| Table | Purpose | Review hardening |
+|---|---|---|
+| `user` | auth identity (name, email, emailVerified, image) | length limits |
+| `session` | session token (unique), expiry, user agent | `ipAddress` must be NULL/'' (no raw IPs) |
+| `account` | provider identity (`providerId`, `accountId`) | **unique (providerId, accountId)**; providers limited to google/github; `password` must be NULL |
+| `verification` | OAuth state, passkey challenges | size limits |
+| `passkey` | WebAuthn credentials | **unique credentialID**; size limits |
+
+They are not STRICT (Better Auth uses the `date` column type). Foreign keys
+cascade from `user`. Application tables reference the auth user only through
+`user_profiles.auth_user_id` (opaque text, unique, no FK); see
+[AUTHENTICATION.md](AUTHENTICATION.md) for the lifecycle.
+
+Applied migrations are locked: `tests/static/migrations.test.ts` records each
+applied file's SHA-256 and fails if one changes.

@@ -4,8 +4,8 @@ This document describes the controls implemented in the control-plane Worker.
 Agent access rules are in [AGENT_ACCESS_CONTROL.md](AGENT_ACCESS_CONTROL.md);
 the signed provisioning protocol will be in `PROVISIONING_PROTOCOL.md`.
 
-Status: Phase 2 (security foundation). Authentication, D1, and provisioning
-are not implemented yet.
+Status: Phase 4 (authentication). Provisioning is not implemented yet.
+Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).
 
 ## Trust boundaries
 
@@ -58,15 +58,20 @@ base-uri 'self';
 object-src 'none';
 frame-ancestors 'none';
 form-action 'self';
-script-src 'self' 'nonce-<per-response>';
+script-src 'self' 'nonce-<per-response>' https://challenges.cloudflare.com;
 style-src 'self';
 img-src 'self' data:;
 font-src 'self';
 connect-src 'self';
 manifest-src 'self';
 worker-src 'self';
-frame-src 'none'
+frame-src https://challenges.cloudflare.com
 ```
+
+`https://challenges.cloudflare.com` (exact origin) is the only third-party
+source, for the Turnstile script and challenge iframe on the login page. OAuth
+sign-in is a top-level navigation to Google/GitHub, which CSP does not
+govern, so no identity-provider origin is listed.
 
 ### Development document policy
 
@@ -84,10 +89,8 @@ so a JSON body opened directly as a page is inert.
 
 ### Adding sources
 
-Third-party sources (Turnstile, OAuth providers) are added only with the
-feature that needs them, as narrowly as possible (e.g. Turnstile will need
-`script-src https://challenges.cloudflare.com` and
-`frame-src https://challenges.cloudflare.com`). Never `*`, `'unsafe-eval'`,
+Third-party sources are added only with the feature that needs them, as
+narrowly as possible (Turnstile, Phase 4). Never `*`, `'unsafe-eval'`,
 global `'unsafe-inline'`, or bare schemes. Zod runs `jitless` so it never
 probes `new Function`.
 
@@ -164,16 +167,21 @@ approval), starting with a short max-age. `X-Frame-Options` is not sent
 | recovery | `RL_RECOVERY` | 3 / 60 s | deny |
 | provision | `RL_PROVISION` | 5 / 60 s | deny |
 | read | `RL_READ` | 120 / 60 s | allow (logged) |
+| passkey_login | `RL_PASSKEY_LOGIN` | 20 / 60 s | deny |
+| security_write | `RL_SECURITY_WRITE` | 20 / 60 s | deny |
+
+(`login` is 20 / 60 s and `signup` 10 / 60 s since Phase 4; see
+[AUTHENTICATION.md](AUTHENTICATION.md) for where each policy is applied.)
 
 Keys are `policy:kind:value` (user id preferred; IP only for unauthenticated
 endpoints). Each environment uses its own namespace ids. Exceeding a limit
 returns `429 RATE_LIMITED` with `Retry-After`. The binding is per-location and
-eventually consistent, so it is abuse protection, not an exact quota. No
-endpoint applies a policy yet; each is wired in with its feature.
+eventually consistent, so it is abuse protection, not an exact quota.
 
 ## Turnstile
 
-`src/worker/security/turnstile.ts`. Not yet attached to an endpoint.
+`src/worker/security/turnstile.ts`. Attached to OAuth sign-in start
+(`POST /api/auth/sign-in/social`, action `login`).
 
 - Verification is server-side via Siteverify (5 s timeout, no redirects,
   response size bounded and schema-validated).
