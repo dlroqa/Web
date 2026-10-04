@@ -72,7 +72,8 @@
         "PUBLIC_ORIGIN": "https://lightagent-control-staging.eddelaroca.workers.dev",
         "PASSKEY_RP_ID": "lightagent-control-staging.eddelaroca.workers.dev",
         "SIGNUP_POLICY": "approval",
-        "TURNSTILE_SITE_KEY": ""
+        // Public site key of the staging-only widget (hostname-restricted).
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFNMfAUq5o1WPhrX"
       },
       "d1_databases": [
         {
