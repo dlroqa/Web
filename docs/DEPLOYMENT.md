@@ -188,3 +188,32 @@ Post-teardown staging checks: documents serve per-request nonces that match
 the header; `/health` ok; API 404s are JSON; foreign `Origin` POST → 403;
 missing asset → 404; staging D1 has 0 rows; real-browser check on 5 routes
 plus a deep refresh: **0 CSP violations**.
+
+### 2026-10-04: Phase 4 authentication (pre-OAuth credentials)
+
+- Applied `0002_better_auth.sql` to **staging** D1 (production: no migrations
+  applied).
+- Created Turnstile widget `lightagent-control-staging` (managed, domain
+  `lightagent-control-staging.eddelaroca.workers.dev` only); site key
+  `0x4AAAAAAFNMfAUq5o1WPhrX` in `wrangler.jsonc`.
+- Staging Worker secrets installed (generated locally, never printed, files
+  deleted): `TURNSTILE_SECRET`, `BETTER_AUTH_SECRET`, `AUDIT_SOURCE_HMAC_KEY`.
+  Not yet set: `GOOGLE_CLIENT_ID/SECRET`, `GITHUB_CLIENT_ID/SECRET`.
+- Deployed commit `65caa14` as version `c801ff2f-454a-4ae9-8d51-0e31752e34ba`
+  (`SIGNUP_POLICY=approval`).
+
+| Check | Result |
+|---|---|
+| `/api/config` | `signInAvailable: true`, `providers: []` (no OAuth secrets yet), staging site key |
+| `/api/session` / `/api/me` signed out | `{signedIn:false}` / 401 `AUTH_REQUIRED` |
+| Hidden Better Auth routes (`get-session`, `list-sessions`, `sign-up/email`) | 404 |
+| Passkey authentication options | `rpId` = staging hostname, `userVerification: preferred` |
+| Passkey registration options without a session | 401 |
+| Social sign-in for an unconfigured provider | 400 |
+| Foreign-origin sign-out | 403 |
+| Document CSP | adds only `https://challenges.cloudflare.com` (script-src, frame-src) |
+| Real browser: login (light/dark), protected-route redirects with `returnTo`, error-code messages, XSS in `?error=` | pass, **0 CSP violations, 0 console errors** |
+| Production Worker | not deployed |
+
+Pending (needs OAuth credentials): Google/GitHub sign-in, passkey enrolment
+and sign-in, session revocation, and suspended-user checks in a real browser.
