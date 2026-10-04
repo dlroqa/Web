@@ -14,7 +14,8 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-const files = sourceFiles("src/worker");
+// The operator CLI follows the same rules: its SQL lives in src/worker/db/admin.ts.
+const files = [...sourceFiles("src/worker"), ...sourceFiles("src/operator")];
 
 describe("SQL construction", () => {
   it("never interpolates into SQL template literals", () => {

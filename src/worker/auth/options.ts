@@ -46,6 +46,9 @@ export interface AuthOptionsInput {
   github?: OAuthClient | undefined;
   databaseHooks?: BetterAuthOptions["databaseHooks"];
   backgroundTask?: (promise: Promise<unknown>) => void;
+  /** Routes Better Auth's diagnostics through our redacting logger (see logging.ts). */
+  logger?: BetterAuthOptions["logger"];
+  onError?: NonNullable<BetterAuthOptions["onAPIError"]>["onError"];
 }
 
 export function buildAuthOptions(input: AuthOptionsInput) {
@@ -132,7 +135,9 @@ export function buildAuthOptions(input: AuthOptionsInput) {
       throw: false,
       // Provider and callback errors land on the login page with a code only.
       errorURL: `${input.publicOrigin}/login`,
+      ...(input.onError ? { onError: input.onError } : {}),
     },
+    ...(input.logger ? { logger: input.logger } : {}),
     telemetry: { enabled: false },
     ...(input.databaseHooks ? { databaseHooks: input.databaseHooks } : {}),
   } satisfies BetterAuthOptions;

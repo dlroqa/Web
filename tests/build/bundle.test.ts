@@ -102,4 +102,12 @@ describe("worker bundle", () => {
       .join("\n");
     expect(code).not.toMatch(/unsafe-eval|unsafe-inline|unsafe-hashes/);
   });
+
+  it("contains no operator code (operator actions are CLI-only)", () => {
+    const bundle = readFileSync(WORKER, "utf8");
+    // Distinctive strings from src/operator; the Worker must never include that module.
+    expect(bundle).not.toContain("operator actions require an operator actor");
+    expect(bundle).not.toContain("revoking every user's sessions requires --yes");
+    expect(bundle).not.toContain("lightagent-operator-");
+  });
 });

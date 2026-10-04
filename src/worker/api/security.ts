@@ -27,6 +27,7 @@ import { jsonOk, type ResponseMeta } from "../http/responses";
 import { parseJsonBody } from "../http/validation";
 import { enforceRateLimit } from "../security/rate-limit";
 import { SESSION_FRESH_AGE_SECONDS } from "../auth/options";
+import { passkeyAuditFields } from "../auth/passkey-audit";
 import { createAuthServices, type AuthServices, type Principal } from "../auth/services";
 
 const ACCOUNT_STATUSES = ["active", "pending"] as const;
@@ -87,6 +88,8 @@ interface PasskeyRow {
   deviceType?: string;
   backedUp?: boolean | number;
   createdAt?: Date | string | null;
+  /** Used only to derive the audit fingerprint; never returned to the browser. */
+  credentialID?: string | null;
 }
 
 async function ownPasskeys(s: AuthServices, principal: Principal): Promise<PasskeyRow[]> {
@@ -105,6 +108,12 @@ async function findOwnPasskey(s: AuthServices, principal: Principal, id: string)
   });
   if (!row) throw new ApiError("NOT_FOUND");
   return row;
+}
+
+/** A JSON response that also deletes the browser's session cookies. */
+async function withSessionCookiesCleared(s: AuthServices, response: Response): Promise<Response> {
+  for (const cookie of await s.expiredSessionCookies()) response.headers.append("set-cookie", cookie);
+  return response;
 }
 
 function requireFresh(principal: Principal): void {
@@ -174,18 +183,22 @@ const handlers = {
     const target = (await adapter.listSessions(principal.authUserId)).find((session) => session.id === id);
     if (!target) throw new ApiError("NOT_FOUND");
     await adapter.deleteSession(target.token);
+    const current = id === principal.sessionId;
     s.audit.bestEffort(
       {
         actor: { type: "user", id: principal.userProfileId },
         action: "auth.session.revoke",
+        target: { type: "session", id },
         requestId: ctx.requestId,
         result: "success",
-        metadata: { current: id === principal.sessionId },
+        metadata: { current },
         security: await s.securityMetadata(),
       },
       ctx.waitUntil,
     );
-    return jsonOk({ revoked: true, current: id === principal.sessionId }, meta(ctx));
+    const response = jsonOk({ revoked: true, current }, meta(ctx));
+    // Revoking this browser's own session signs it out here too.
+    return current ? withSessionCookiesCleared(s, response) : response;
   },
 
   async revokeAllSessions(ctx, s) {
@@ -197,7 +210,9 @@ const handlers = {
       { actor: { type: "user", id: principal.userProfileId }, action: "auth.session.revoke_all", requestId: ctx.requestId, result: "success", security: await s.securityMetadata() },
       ctx.waitUntil,
     );
-    return jsonOk({ revoked: true, current: true }, meta(ctx));
+    // The caller's session is gone too, so this browser is signed out:
+    // expire its cookies exactly as sign-out does.
+    return withSessionCookiesCleared(s, jsonOk({ revoked: true, current: true }, meta(ctx)));
   },
 
   async listPasskeys(ctx, s) {
@@ -218,7 +233,7 @@ const handlers = {
     await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
     const id = opaqueId(params["id"]);
     const { name } = await parseJsonBody(ctx.request, RenameBody);
-    await findOwnPasskey(s, principal, id);
+    const existing = await findOwnPasskey(s, principal, id);
     const adapter = (await s.auth.$context).adapter;
     await adapter.update({
       model: "passkey",
@@ -229,7 +244,14 @@ const handlers = {
       update: { name },
     });
     s.audit.bestEffort(
-      { actor: { type: "user", id: principal.userProfileId }, action: "auth.passkey.rename", requestId: ctx.requestId, result: "success", security: await s.securityMetadata() },
+      {
+        actor: { type: "user", id: principal.userProfileId },
+        action: "auth.passkey.rename",
+        requestId: ctx.requestId,
+        result: "success",
+        ...(await passkeyAuditFields({ ...existing, name })),
+        security: await s.securityMetadata(),
+      },
       ctx.waitUntil,
     );
     return jsonOk({ id, name }, meta(ctx));
@@ -239,7 +261,7 @@ const handlers = {
     const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
     await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
     const id = opaqueId(params["id"]);
-    await findOwnPasskey(s, principal, id);
+    const existing = await findOwnPasskey(s, principal, id);
     requireFresh(principal);
     const adapter = (await s.auth.$context).adapter;
     await adapter.delete({
@@ -250,7 +272,14 @@ const handlers = {
       ],
     });
     s.audit.bestEffort(
-      { actor: { type: "user", id: principal.userProfileId }, action: "auth.passkey.remove", requestId: ctx.requestId, result: "success", security: await s.securityMetadata() },
+      {
+        actor: { type: "user", id: principal.userProfileId },
+        action: "auth.passkey.remove",
+        requestId: ctx.requestId,
+        result: "success",
+        ...(await passkeyAuditFields(existing)),
+        security: await s.securityMetadata(),
+      },
       ctx.waitUntil,
     );
     return jsonOk({ removed: true }, meta(ctx));

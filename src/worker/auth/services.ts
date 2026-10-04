@@ -16,6 +16,7 @@ import { CloudflareRateLimiter, type RateLimiter } from "../security/rate-limit"
 import { securityMetadataFor } from "../security/source-identity";
 import { describeError } from "../utils/log";
 import { IdentityService, SESSION_ALLOWED_STATUSES } from "./identity";
+import { betterAuthErrorHandler, betterAuthLogger } from "./logging";
 import { buildAuthOptions, type OAuthClient, type SocialProviderId } from "./options";
 
 const MIN_SECRET_LENGTH = 32;
@@ -43,6 +44,25 @@ function oauthClient(env: Env, provider: "GOOGLE" | "GITHUB"): OAuthClient | und
   return clientId && clientSecret ? { clientId, clientSecret } : undefined;
 }
 
+/** Why this request's session creation was refused by account policy, if it was. */
+export type SessionDenial = "ACCOUNT_DISABLED";
+
+interface CookieDefinition {
+  name: string;
+  attributes: { path?: string; secure?: boolean; httpOnly?: boolean; sameSite?: string; domain?: string };
+}
+
+/** A Set-Cookie value that deletes `cookie`, with the attributes it was set with. */
+export function expiredCookie(cookie: CookieDefinition): string {
+  const { path, secure, httpOnly, sameSite, domain } = cookie.attributes;
+  const parts = [`${cookie.name}=`, "Max-Age=0", `Path=${path ?? "/"}`];
+  if (domain) parts.push(`Domain=${domain}`);
+  if (httpOnly) parts.push("HttpOnly");
+  if (secure) parts.push("Secure");
+  if (sameSite) parts.push(`SameSite=${sameSite.charAt(0).toUpperCase()}${sameSite.slice(1).toLowerCase()}`);
+  return parts.join("; ");
+}
+
 /** Login method recorded in audit metadata, from the Better Auth endpoint path. */
 function loginMethod(path: string | undefined, providerParam: unknown): string {
   if (path?.startsWith("/passkey/")) return "passkey";
@@ -65,6 +85,11 @@ export function createAuthServices(ctx: RequestContext) {
   const sourceAddress = request.headers.get("cf-connecting-ip");
   let security: Promise<SecurityMetadata> | undefined;
   const securityMetadata = () => (security ??= securityMetadataFor(request, env).catch(() => ({})));
+  // Set by the session.create hook when it refuses a sign-in for account
+  // policy, so the gateway can report ACCOUNT_DISABLED instead of a failure.
+  let sessionDenial: SessionDenial | null = null;
+  // Set when Better Auth reports an unexpected internal error in this request.
+  let internalFault = false;
 
   const google = oauthClient(env, "GOOGLE");
   const github = oauthClient(env, "GITHUB");
@@ -80,6 +105,10 @@ export function createAuthServices(ctx: RequestContext) {
       google,
       github,
       backgroundTask: (promise) => ctx.waitUntil(promise),
+      logger: betterAuthLogger(logger, () => {
+        internalFault = true;
+      }),
+      onError: betterAuthErrorHandler(logger),
       databaseHooks: {
         // Sign-in is the only use of OAuth here, so provider tokens are not
         // kept at all (they would grant access to the user's provider account).
@@ -107,6 +136,7 @@ export function createAuthServices(ctx: RequestContext) {
                   { actor: { type: "user", id: user.id }, action: "auth.login.failure", requestId: ctx.requestId, result: "denied", reason: "ACCOUNT_DISABLED", security: await securityMetadata() },
                   ctx.waitUntil,
                 );
+                sessionDenial = "ACCOUNT_DISABLED";
                 return false;
               }
               return { data: session };
@@ -167,7 +197,32 @@ export function createAuthServices(ctx: RequestContext) {
     return principal;
   }
 
-  return { auth, identity, users, audit, limiter, providers, authConfig, securityMetadata, currentPrincipal, requirePrincipal };
+  /**
+   * Set-Cookie values that delete the session cookies: the same names and
+   * attributes Better Auth's own sign-out expires.
+   */
+  async function expiredSessionCookies(): Promise<string[]> {
+    const { authCookies } = await auth.$context;
+    return [authCookies.sessionToken, authCookies.sessionData, authCookies.dontRememberToken].map(expiredCookie);
+  }
+
+  return {
+    auth,
+    identity,
+    users,
+    audit,
+    limiter,
+    providers,
+    authConfig,
+    securityMetadata,
+    currentPrincipal,
+    requirePrincipal,
+    expiredSessionCookies,
+    /** The account-policy reason this request's sign-in was refused, if any. */
+    sessionDenial: (): SessionDenial | null => sessionDenial,
+    /** Whether Better Auth hit an unexpected internal error in this request. */
+    internalFault: (): boolean => internalFault,
+  };
 }
 
 export type AuthServices = ReturnType<typeof createAuthServices>;

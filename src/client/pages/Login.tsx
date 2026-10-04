@@ -10,6 +10,7 @@ import { GitHubMark, GoogleMark, KeyIcon, LogoMark } from "../components/icons";
 /** Messages for the error codes the server may put on /login?error=… */
 const CALLBACK_ERRORS: Record<string, string> = {
   account_not_linked: "This email is already registered with a different sign-in method. Use that method to sign in.",
+  account_disabled: "This account is not active. Contact support if you think this is a mistake.",
   access_denied: "Sign-in was cancelled.",
   unable_to_create_session: "This account can't sign in right now. Contact support if you think this is a mistake.",
   state_mismatch: "Your sign-in session expired. Please try again.",
@@ -103,8 +104,10 @@ export function Login() {
         text:
           error instanceof PasskeyCancelled
             ? "No passkey was used. If you haven't added one yet, sign in with Google or GitHub first, then add a passkey under Security."
-            : error instanceof ApiRequestError
-              ? error.message
+            : error instanceof ApiRequestError && error.code === "ACCOUNT_DISABLED"
+              ? (CALLBACK_ERRORS["account_disabled"] ?? error.message)
+              : error instanceof ApiRequestError
+                ? error.message
               : "Passkey sign-in failed. Please try again.",
       });
     } finally {

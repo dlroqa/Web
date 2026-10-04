@@ -44,7 +44,14 @@ export const AUDIT_ACTIONS = [
   "provision.replay.detected",
   "admin.harness.register",
   "admin.harness.disable",
-  "admin.account.suspend",
+  // Operator actions (trusted CLI only; see src/operator and docs/OPERATIONS.md).
+  "admin.user.approve",
+  "admin.user.suspend",
+  "admin.user.reactivate",
+  "admin.user.disable",
+  "admin.user.sessions.revoke",
+  "admin.sessions.revoke_all",
+  "admin.passkey.remove",
   "security.origin.rejected",
   "security.ratelimit.exceeded",
 ] as const;
@@ -55,6 +62,12 @@ export type AuditResult = "success" | "failure" | "denied";
 export type AuditMetadataValue = string | number | boolean | null;
 
 const SafeId = z.string().regex(/^[a-z]{2,8}_[a-z0-9]{8,64}$/, "ids must be prefixed random identifiers");
+/**
+ * Better Auth's own row ids (sessions, passkeys): opaque random strings,
+ * never tokens or credential ids. Only these target types may use them.
+ */
+const AuthRowId = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/, "auth row ids are opaque random identifiers");
+const AUTH_ROW_TARGETS = new Set(["session", "passkey"]);
 const MetadataKey = z
   .string()
   .regex(/^[a-z][a-zA-Z0-9]{0,39}$/)
@@ -73,8 +86,9 @@ const AuditEventSchema = z
     ]),
     action: z.enum(AUDIT_ACTIONS),
     target: z
-      .object({ type: z.enum(["user", "agent_profile", "session", "passkey", "harness", "provisioning_job"]), id: SafeId })
+      .object({ type: z.enum(["user", "agent_profile", "session", "passkey", "harness", "provisioning_job"]), id: z.string() })
       .strict()
+      .refine((t) => (AUTH_ROW_TARGETS.has(t.type) ? AuthRowId : SafeId).safeParse(t.id).success, { path: ["id"], message: "invalid target id" })
       .optional(),
     requestId: SafeId,
     result: z.enum(["success", "failure", "denied"]),
