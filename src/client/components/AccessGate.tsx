@@ -10,6 +10,7 @@
  */
 import type { ReactNode } from "react";
 import { decideAccess, isReturnPath, pageAccess, type AccessDecision, type AccountStatus } from "../../shared/access";
+import { usePageTitle } from "../lib/router";
 import type { SessionState } from "../lib/session";
 import { useSession } from "../lib/session";
 import { LogoMark } from "./icons";
@@ -59,6 +60,7 @@ export function gate(path: string, session: SessionState): GateResult {
 }
 
 function StatusCard({ title, children }: { title: string; children: ReactNode }) {
+  usePageTitle(title);
   return (
     <div className="auth-page">
       <main className="auth-card" id="main" aria-labelledby="status-title">
