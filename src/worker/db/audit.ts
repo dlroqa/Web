@@ -24,35 +24,36 @@ import { decodeJson, encodeJson, JSON_LIMITS, SecurityMetadataSchema } from "./j
 
 const DetailsSchema = z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]));
 
+const INSERT_AUDIT = `INSERT INTO audit_events
+  (id, timestamp, actor_type, actor_id, action, target_type, target_id, request_id, result, reason, security_metadata_json, details_json)
+  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`;
+
+/** The 12 values of one audit_events row, in column order (validated, size-bounded JSON). */
+export function auditRowValues(event: AuditEvent): Array<string | number | null> {
+  return [
+    event.id,
+    Date.parse(event.timestamp),
+    event.actor.type,
+    event.actor.type === "anonymous" ? null : event.actor.id,
+    event.action,
+    event.target?.type ?? null,
+    event.target?.id ?? null,
+    event.requestId,
+    event.result,
+    event.reason ?? null,
+    encodeJson(SecurityMetadataSchema, event.security, JSON_LIMITS.securityMetadata),
+    encodeJson(DetailsSchema, event.metadata, JSON_LIMITS.auditDetails),
+  ];
+}
+
 export class D1AuditSink implements AuditSink {
   constructor(private readonly db: D1Database) {}
 
   async record(event: AuditEvent): Promise<void> {
-    const actorId = event.actor.type === "anonymous" ? null : event.actor.id;
-    const security = encodeJson(SecurityMetadataSchema, event.security, JSON_LIMITS.securityMetadata);
-    const details = encodeJson(DetailsSchema, event.metadata, JSON_LIMITS.auditDetails);
     await guard(() =>
       this.db
-        .prepare(
-          `INSERT INTO audit_events
-             (id, timestamp, actor_type, actor_id, action, target_type, target_id, request_id, result, reason,
-              security_metadata_json, details_json)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
-        )
-        .bind(
-          event.id,
-          Date.parse(event.timestamp),
-          event.actor.type,
-          actorId,
-          event.action,
-          event.target?.type ?? null,
-          event.target?.id ?? null,
-          event.requestId,
-          event.result,
-          event.reason ?? null,
-          security,
-          details,
-        )
+        .prepare(INSERT_AUDIT)
+        .bind(...auditRowValues(event))
         .run(),
     );
   }

@@ -279,6 +279,8 @@ environment yet. When unset, events carry no source hash. To enable, generate
 | Data | Retention (proposed) | Mechanism |
 |---|---|---|
 | `provisioning_nonces` | until `expires_at` (≤ 10 min after issue) | `NonceRepository.purgeExpired` in bounded batches; Cron Trigger scheduling deferred until provisioning ships |
+| `verification` (Better Auth) | until `expiresAt` (OAuth state, passkey challenges: minutes) | Better Auth deletes consumed rows; abandoned ones are removed by `VerificationRepository.deleteExpired` (bounded, only ISO-text expiries in the past), run with `npm run operator -- purge-verifications`; scheduling deferred |
+| `session` (Better Auth) | until expiry or revocation | Better Auth; incident revocation via the operator CLI |
 | `provisioning_jobs` | terminal jobs 90 days | future scheduled cleanup |
 | `audit_events` | 1 year; then delete in batches (deletes are allowed, updates are not) | future scheduled cleanup; account deletion follows the policy in the directive (§74) |
 | `user_profiles`, `agent_profiles` | life of the account; revoked profiles kept for audit until account deletion | account-deletion flow (future) |
@@ -293,7 +295,7 @@ proves the committed schema satisfies the pinned version.
 | Table | Purpose | Review hardening |
 |---|---|---|
 | `user` | auth identity (name, email, emailVerified, image) | length limits |
-| `session` | session token (unique), expiry, user agent | `ipAddress` must be NULL/'' (no raw IPs) |
+| `session` | session token (unique, **stored raw**: see [SESSION_STORAGE_SECURITY.md](SESSION_STORAGE_SECURITY.md)), expiry, user agent | `ipAddress` must be NULL/'' (no raw IPs) |
 | `account` | provider identity (`providerId`, `accountId`) | **unique (providerId, accountId)**; providers limited to google/github; `password` must be NULL |
 | `verification` | OAuth state, passkey challenges | size limits |
 | `passkey` | WebAuthn credentials | **unique credentialID**; size limits |
@@ -305,3 +307,21 @@ cascade from `user`. Application tables reference the auth user only through
 
 Applied migrations are locked: `tests/static/migrations.test.ts` records each
 applied file's SHA-256 and fails if one changes.
+
+## Operator writes
+
+Account-status changes, operator session revocation, and operator passkey
+removal go through `AdminRepository` (`src/worker/db/admin.ts`), used only by
+the operator CLI ([OPERATIONS.md](OPERATIONS.md)). Each is one D1 `batch`
+(a transaction): an `INSERT … SELECT … WHERE EXISTS (<guard>)` for the audit
+row and the change itself guarded by the same condition, so the change and
+its `admin.*` audit event are stored together or not at all. The
+`user_profiles_status_transition` trigger still enforces the state machine
+underneath. Direct `UPDATE user_profiles` through `wrangler d1 execute` is no
+longer an operational procedure.
+
+## Staging data
+
+Staging holds two controlled test identities (`usr_zabx…` active, `usr_bcv3…`
+pending; see [OPERATIONS.md](OPERATIONS.md#staging-test-accounts)). Staging
+data is never copied to production.

@@ -19,6 +19,11 @@ Upgrade procedure:
    `npm run auth:schema -- generate`, review the SQL, and add it as a **new**
    migration.
 4. Run `npm test`. The auth and passkey contract tests must pass.
+5. Re-evaluate session storage: check the release notes and source for a
+   supported hashed or opaque session-token mode, and review it before
+   adopting it ([SESSION_STORAGE_SECURITY.md](SESSION_STORAGE_SECURITY.md)).
+   Confirm `disableSessionRefresh` and `expiresIn` still mean an absolute
+   lifetime.
 
 ## Identity model
 
@@ -65,6 +70,18 @@ The application status is checked on **every** request, so a valid Better
 Auth session never overrides suspension; deleting sessions is not required
 to enforce it.
 
+A refused sign-in has the same application error on every path:
+`POST /api/auth/passkey/verify-authentication` returns
+`403 ACCOUNT_DISABLED`, and the OAuth callback redirects to
+`/login?error=account_disabled`. Better Auth reports the refusal as a
+generic `UNABLE_TO_CREATE_SESSION` (500), so the session hook records the
+reason for the request and the gateway maps it (`mapUpstreamError`). The
+same Better Auth code without a recorded denial, and any request in which
+Better Auth logged an internal error, stays `500 INTERNAL_ERROR`.
+
+Status changes are made only through the audited operator CLI
+([OPERATIONS.md](OPERATIONS.md)).
+
 ## Endpoints
 
 ### Better Auth (behind the gateway, `src/worker/auth/gateway.ts`)
@@ -82,8 +99,9 @@ Only these paths reach Better Auth; every other `/api/auth/*` path is 404.
 | `POST /api/auth/passkey/verify-registration` | principal; per-user limit; strict body (`createSession` rejected); response reduced to `{id}` |
 
 Better Auth error bodies are discarded and mapped to stable codes
-(`AUTH_REQUIRED`, `REAUTH_REQUIRED`, `FORBIDDEN`, `INVALID_REQUEST`,
-`RATE_LIMITED`, `INTERNAL_ERROR`).
+(`ACCOUNT_DISABLED`, `AUTH_REQUIRED`, `REAUTH_REQUIRED`, `FORBIDDEN`,
+`INVALID_REQUEST`, `RATE_LIMITED`, `INTERNAL_ERROR`). Better Auth's own text
+never reaches the browser.
 
 ### Application (`src/worker/api/security.ts`)
 
@@ -94,8 +112,8 @@ Better Auth error bodies are discarded and mapped to stable codes
 | `GET /api/me` | `{id, displayName, status}`; 401 without a session |
 | `GET /api/security/methods` | connected providers and passkey count |
 | `GET /api/security/sessions` | the caller's sessions: `{id, device, createdAt, lastActiveAt, expiresAt, current}`; **no tokens, no IPs** |
-| `DELETE /api/security/sessions/:id` | revoke one of the caller's sessions (others survive) |
-| `POST /api/security/sessions/revoke-all` | revoke **all** of the caller's sessions, **including the current one**; the UI returns to `/login` |
+| `DELETE /api/security/sessions/:id` | revoke one of the caller's sessions (others survive); revoking the current one also expires this browser's cookies |
+| `POST /api/security/sessions/revoke-all` | revoke **all** of the caller's sessions, **including the current one**, and expire this browser's session cookies with the same names and attributes as sign-out (`Max-Age=0`); repeating it returns `401 AUTH_REQUIRED` and changes nothing; the UI returns to `/login` |
 | `GET /api/security/passkeys` | `{id, name, deviceType, backedUp, createdAt}`; no credential id or public key |
 | `PATCH /api/security/passkeys/:id` | rename (1–80 chars) |
 | `DELETE /api/security/passkeys/:id` | requires a fresh session (`REAUTH_REQUIRED` otherwise) |
@@ -167,7 +185,7 @@ takeover attempts.
 
 | Cookie | Attributes |
 |---|---|
-| `lightagent.session_token` (`__Secure-lightagent.session_token` over HTTPS) | `HttpOnly`, `Secure` (HTTPS), **`SameSite=Strict`**, `Path=/api`, 7-day max age |
+| `lightagent.session_token` (`__Secure-lightagent.session_token` over HTTPS) | `HttpOnly`, `Secure` (HTTPS), **`SameSite=Strict`**, `Path=/api`, 24-hour max age |
 | `lightagent.state`, passkey challenge cookie | `HttpOnly`, `Secure` (HTTPS), `SameSite=Lax`, `Path=/api` |
 
 - Why two SameSite values: the OAuth state cookie must be sent on the
@@ -182,8 +200,13 @@ takeover attempts.
   is never adopted (fixation test).
 - `session.ipAddress` is never filled (`disableIpTracking`; a CHECK constraint
   enforces it). Sessions keep the user agent, shown as a coarse "Browser on OS".
-- Lifetimes: 7 days; Better Auth extends the server-side expiry after 1 day of
-  use; "fresh" = 10 minutes after sign-in.
+- Lifetime: **24 hours absolute** (`expiresIn: 86400`,
+  `disableSessionRefresh: true`). Use never extends a session; after 24 hours
+  the user signs in again. "Fresh" (recent authentication) = 10 minutes after
+  sign-in.
+- `session.token` is stored raw in D1 (Better Auth 1.7.7 has no hashed
+  storage). This is accepted with mandatory compensating controls; see
+  [SESSION_STORAGE_SECURITY.md](SESSION_STORAGE_SECURITY.md).
 
 ### Session revocation and `revocation_version`
 
@@ -232,7 +255,20 @@ Written through `AuditRecorder.bestEffort` to D1 (failures fall back to logs):
 `auth.account.created`, `auth.login.success` (`method`: google/github/passkey),
 `auth.login.failure` (account not allowed to sign in), `auth.logout`,
 `auth.passkey.add`, `auth.passkey.rename`, `auth.passkey.remove`,
-`auth.session.revoke`, `auth.session.revoke_all`.
+`auth.session.revoke`, `auth.session.revoke_all`. Operator actions are
+`admin.*` events ([OPERATIONS.md](OPERATIONS.md)).
+
+Targets identify *what* was acted on without credential material:
+
+| Event | Target | Metadata |
+|---|---|---|
+| `auth.passkey.add/rename/remove`, `admin.passkey.remove` | `passkey` row id | `name` (the owner's label), `fingerprint` = `sha256:` + first 16 hex digits of SHA-256(credential id) |
+| `auth.session.revoke` | `session` row id (never the token) | `current` |
+| `admin.user.*` | `user` (`usr_…`) | `reason`, `from`, `to`, `channel` |
+
+The fingerprint answers "which passkey was removed?". It correlates with
+the authenticator's credential without storing the credential id itself;
+public keys, counters, and assertion data are never recorded.
 
 Logged only (unauthenticated, potentially high-volume): `auth.oauth.start`,
 `auth.oauth.callback.failure` (with a sanitized error code),
@@ -240,8 +276,27 @@ Logged only (unauthenticated, potentially high-volume): `auth.oauth.start`,
 
 Never logged or stored: OAuth codes, access/refresh/id tokens, session
 cookies or tokens, WebAuthn assertions/attestations/signatures, client
-secrets, `BETTER_AUTH_SECRET`, Turnstile tokens. Tests scan captured logs for
-each of these.
+secrets, `BETTER_AUTH_SECRET`, Turnstile tokens. Tests scan captured logs,
+audit rows, and responses for each of these.
+
+### Better Auth's own diagnostics
+
+Better Auth logs through two supported hooks, both wired to our redacting
+logger (`src/worker/auth/logging.ts`); nothing is patched:
+
+- `logger.log(level, message, …args)` → `better_auth.log` lines. The message
+  is bounded to 200 characters with every run of 20 or more token-like
+  characters replaced by `[opaque]`; extra arguments are recorded only as
+  types (`Error`, `object`). Level `warn` (Better Auth's default).
+- `onAPIError.onError` → `better_auth.api_error` with the error's status and
+  code only. When this hook is set, Better Auth does not log API errors
+  itself.
+
+Better Auth's global logger delegates to these inside a request. Outside a
+request (startup only) it can print fixed text such as adapter warnings,
+with no request data. Expected failures (e.g. `account_not_linked`) appear as
+`better_auth.log` at error level with the sanitized message; that is normal.
+Production should keep the level at `warn`.
 
 ### Source hashing
 
@@ -278,6 +333,8 @@ id/secret is simply not offered.
 | `google.prompt` | none | `select_account` | explicit account choice |
 | `emailAndPassword.enabled` | false | false (explicit) | no passwords |
 | `session.cookieCache` | disabled | disabled (explicit) | immediate revocation |
+| `session.expiresIn` | 7 days | **24 hours** | absolute lifetime for a control plane |
+| `session.disableSessionRefresh` | false | **true** | use never extends a session |
 | `session.freshAge` | 1 day | **10 minutes** | recent authentication for passkey changes |
 | `advanced.cookiePrefix` | `better-auth` | `lightagent` | |
 | `advanced.defaultCookieAttributes.path` | `/` | **`/api`** | narrow cookie scope |
@@ -286,5 +343,28 @@ id/secret is simply not offered.
 | `rateLimit.enabled` | true in production | **false** | replaced by Cloudflare bindings |
 | `telemetry.enabled` | (opt-in) | false (explicit) | no third-party calls |
 | `onAPIError.errorURL` | Better Auth page | `/login` | errors land on our page with a code |
+| `onAPIError.onError` | Better Auth logs the error | structured, code-only log | no free text from errors |
+| `logger` | console, colored text | redacting adapter, level `warn` | one structured, sanitized line per message |
 | passkey `registration.requireSession` | true | true (explicit) | no passkey-first sign-up |
 | Endpoint surface | all routes | 7 routes via gateway | minimal attack surface |
+
+## Staging validation (real providers)
+
+Verified on staging on 2026-10-04 with the real Google and GitHub OAuth apps
+and a real browser (details in [DEPLOYMENT.md](DEPLOYMENT.md)):
+
+- Google (`openid email profile`) and GitHub (`read:user user:email`)
+  sign-in; first sign-in is `pending` under `approval`; activation works.
+- Passkey enrolment (fresh session required), sign-in resolving the same
+  `usr_…` identity, removal; Better Auth's WebAuthn verification only.
+- Session listing without tokens, single revoke, sign out everywhere
+  (including the current session), cross-user ids → 404.
+- Suspension: a still-valid session is denied (`403 ACCOUNT_DISABLED`), and
+  fresh Google and passkey sign-ins are refused.
+- Same-email Google/GitHub sign-in is **not** linked (`account_not_linked`).
+- Provider access, refresh, and ID tokens are not persisted.
+- CSP: zero violations; no Google/GitHub sources were added.
+- Remaining: raw session tokens at rest
+  ([SESSION_STORAGE_SECURITY.md](SESSION_STORAGE_SECURITY.md)); the
+  pending-account gate on an active-only route is **deferred by design** to
+  Phase 5 (no such route exists yet; covered by automated tests).

@@ -39,7 +39,7 @@ export default defineConfig(async () => {
             name: "workers",
             // Integration tests run full OAuth/passkey flows (RSA keys, D1).
             testTimeout: 20_000,
-            include: ["tests/{unit,security,db,integration,contracts}/**/*.test.ts"],
+            include: ["tests/{unit,security,db,integration,contracts,operator}/**/*.test.ts"],
             setupFiles: ["./tests/helpers/apply-migrations.ts"],
           },
         },

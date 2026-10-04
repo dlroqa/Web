@@ -4,7 +4,7 @@ This document describes the controls implemented in the control-plane Worker.
 Agent access rules are in [AGENT_ACCESS_CONTROL.md](AGENT_ACCESS_CONTROL.md);
 the signed provisioning protocol will be in `PROVISIONING_PROTOCOL.md`.
 
-Status: Phase 4 (authentication). Provisioning is not implemented yet.
+Status: Phase 4.5 (authentication hardening). Provisioning is not implemented yet.
 Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).
 
 ## Trust boundaries
@@ -14,8 +14,31 @@ Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).
 | Browser / React UI | Nothing. Every input is validated server-side. |
 | Authenticated user (Phase 4+) | Requests within their own account's permissions |
 | Worker | The control plane: auth, authorization, policy, signing |
+| Operator (CLI, Cloudflare account access) | Named account-administration commands only; every change audited ([OPERATIONS.md](OPERATIONS.md)) |
 | Lightagent harness (Phase 7+) | Only properly signed commands; its responses are validated |
 | Cloudflare Siteverify | Turnstile verdicts, after response validation |
+
+## Actors
+
+Three kinds of actor, never derived from one another
+(`src/operator/actors.ts`):
+
+| Actor | Built from | Privileges |
+|---|---|---|
+| `USER` | a Better Auth session, in the Worker (`requirePrincipal`) | own account only |
+| `OPERATOR` | the operator CLI entry point, run by someone with access to the Cloudflare account | the named operator commands |
+| `SYSTEM` | automated code | maintenance only |
+
+- Operator privilege never comes from an email address, hostname, being the
+  first account, knowing a URL, or frontend visibility. There is no admin
+  role in the database and no admin HTTP route; the Worker never imports the
+  operator module (a static test and a build-output test enforce this).
+- Until an admin identity system exists, operator actions are trusted local
+  operations. Their authorization boundary is Cloudflare account access, and
+  the `opr_…` id is an accountable label in the audit trail. A future admin
+  UI needs its own authenticated, separately reviewed operator identity.
+- Operator services check the actor at runtime (`requireOperator`), so a user
+  or system actor passed by mistake is refused before any read or write.
 
 ## Request routing
 
@@ -209,9 +232,13 @@ eventually consistent, so it is abuse protection, not an exact quota.
 - `src/worker/audit/audit.ts`: events are built only by `createAuditEvent`,
   which validates a fixed action list, prefixed random ids, stable error-code
   reasons, and flat scalar metadata whose keys may not look sensitive.
-  Violations throw. Phase 2 records audit events to logs; Phase 3 adds a D1
-  sink behind the same interface. IP hashing is deferred to Phase 3 (it needs
-  a keyed hash secret).
+  Violations throw. Events are stored in D1 (Phase 3), with a keyed source
+  hash in place of IPs.
+- Better Auth's own diagnostics go through the same logger via its supported
+  `logger` and `onAPIError.onError` hooks: sanitized message, no arguments,
+  no error text ([AUTHENTICATION.md](AUTHENTICATION.md#better-auths-own-diagnostics)).
+- Operator actions are written in the same transaction as the change they
+  record (`src/worker/db/admin.ts`).
 
 ## Outbound requests
 

@@ -29,7 +29,8 @@ import { TurnstileVerifier } from "../security/turnstile";
 import { readSecret } from "../config/secrets";
 import { readBoundedText } from "../utils/fetch";
 import { AUTH_BASE_PATH } from "./options";
-import { createAuthServices, type AuthServices } from "./services";
+import { passkeyAuditFields, type PasskeyIdentity } from "./passkey-audit";
+import { createAuthServices, type AuthServices, type SessionDenial } from "./services";
 
 /** Local pages a sign-in may return to. Anything else is rejected. */
 export const RETURN_PATHS = ["/dashboard", "/agents", "/security", "/settings"] as const;
@@ -110,8 +111,30 @@ function finish(ctx: RequestContext, upstream: Response, body: unknown, options:
   return applyApiHeaders(response, ctx.requestId, ctx.config, ctx.url);
 }
 
+/**
+ * The stable application error for a failed Better Auth response.
+ *
+ * An account-policy refusal recorded by our session hook (`denial`) wins:
+ * Better Auth reports it as a generic session-creation failure (500
+ * UNABLE_TO_CREATE_SESSION), but it is an expected denial, not a fault.
+ * The same Better Auth code without a recorded denial stays INTERNAL_ERROR,
+ * and so does any response after Better Auth reported an internal error
+ * (`fault`), whatever status it chose.
+ */
+export function mapUpstreamError(input: { status: number; code: unknown; denial: SessionDenial | null; fault?: boolean }): ErrorCode {
+  if (input.denial) return input.denial;
+  if (input.fault) return "INTERNAL_ERROR";
+  const { status, code } = input;
+  if (status === 401) return "AUTH_REQUIRED";
+  if (status === 403 && code === "SESSION_NOT_FRESH") return "REAUTH_REQUIRED";
+  if (status === 403) return "FORBIDDEN";
+  if (status === 429) return "RATE_LIMITED";
+  if (status >= 400 && status < 500) return "INVALID_REQUEST";
+  return "INTERNAL_ERROR";
+}
+
 /** Map a Better Auth error response to a stable code; its text is discarded. */
-async function upstreamError(ctx: RequestContext, upstream: Response): Promise<Response> {
+async function upstreamError(ctx: RequestContext, s: AuthServices, upstream: Response): Promise<Response> {
   let code: unknown;
   try {
     const parsed: unknown = JSON.parse(await readBoundedText(upstream.body, MAX_AUTH_BODY_BYTES));
@@ -119,19 +142,12 @@ async function upstreamError(ctx: RequestContext, upstream: Response): Promise<R
   } catch {
     code = undefined;
   }
-  const mapped: ErrorCode =
-    upstream.status === 401
-      ? "AUTH_REQUIRED"
-      : upstream.status === 403 && code === "SESSION_NOT_FRESH"
-        ? "REAUTH_REQUIRED"
-        : upstream.status === 403
-          ? "FORBIDDEN"
-          : upstream.status === 429
-            ? "RATE_LIMITED"
-            : upstream.status >= 400 && upstream.status < 500
-              ? "INVALID_REQUEST"
-              : "INTERNAL_ERROR";
-  ctx.logger.warn("auth.upstream_error", { status: upstream.status, code: typeof code === "string" ? code.slice(0, 64) : null, mapped });
+  const denial = s.sessionDenial();
+  const mapped = mapUpstreamError({ status: upstream.status, code, denial, fault: s.internalFault() });
+  const fields = { status: upstream.status, code: typeof code === "string" ? code.slice(0, 64) : null, mapped };
+  // An account-policy denial is expected (and already audited); only real failures are warnings.
+  if (denial) ctx.logger.info("auth.upstream_denied", fields);
+  else ctx.logger.warn("auth.upstream_error", fields);
   const response = jsonError(mapped, { requestId: ctx.requestId, config: ctx.config, url: ctx.url });
   for (const cookie of upstream.headers.getSetCookie()) response.headers.append("set-cookie", cookie);
   return response;
@@ -187,7 +203,7 @@ async function signInSocial(ctx: RequestContext, s: AuthServices): Promise<Respo
       disableRedirect: true,
     }),
   );
-  if (!upstream.ok) return upstreamError(ctx, upstream);
+  if (!upstream.ok) return upstreamError(ctx, s, upstream);
   const result: unknown = await upstream.json();
   const target = typeof result === "object" && result !== null ? Reflect.get(result, "url") : undefined;
   let url: URL | null = null;
@@ -207,7 +223,12 @@ async function signInSocial(ctx: RequestContext, s: AuthServices): Promise<Respo
 async function oauthCallback(ctx: RequestContext, s: AuthServices, provider: string): Promise<Response> {
   await enforceRateLimit(s.limiter, "login", { kind: "ip", address: clientAddress(ctx) });
   const upstream = await s.auth.handler(ctx.request);
-  const { location, error } = safeCallbackLocation(upstream.headers.get("location"), s.authConfig.publicOrigin);
+  // A refusal by account policy gets the same application code as the
+  // passkey path (ACCOUNT_DISABLED), not Better Auth's generic failure code.
+  const denial = s.sessionDenial();
+  const { location, error } = denial
+    ? { location: `${s.authConfig.publicOrigin}${LOGIN_PATH}?error=${denial.toLowerCase()}`, error: denial.toLowerCase() }
+    : safeCallbackLocation(upstream.headers.get("location"), s.authConfig.publicOrigin);
   if (error) ctx.logger.warn("auth.oauth.callback.failure", { provider, error });
   await upstream.body?.cancel();
   return finish(ctx, upstream, null, { status: 302, location });
@@ -216,7 +237,7 @@ async function oauthCallback(ctx: RequestContext, s: AuthServices, provider: str
 async function signOut(ctx: RequestContext, s: AuthServices): Promise<Response> {
   const principal = await s.currentPrincipal().catch(() => null);
   const upstream = await s.auth.handler(rebuild(ctx.request, ctx.url, {}));
-  if (!upstream.ok) return upstreamError(ctx, upstream);
+  if (!upstream.ok) return upstreamError(ctx, s, upstream);
   if (principal) {
     s.audit.bestEffort(
       { actor: { type: "user", id: principal.userProfileId }, action: "auth.logout", requestId: ctx.requestId, result: "success", security: await s.securityMetadata() },
@@ -230,7 +251,7 @@ async function signOut(ctx: RequestContext, s: AuthServices): Promise<Response> 
 async function passkeyAuthenticateOptions(ctx: RequestContext, s: AuthServices): Promise<Response> {
   await enforceRateLimit(s.limiter, "passkey_login", { kind: "ip", address: clientAddress(ctx) });
   const upstream = await s.auth.handler(rebuild(ctx.request, new URL(ctx.url.pathname, ctx.url)));
-  if (!upstream.ok) return upstreamError(ctx, upstream);
+  if (!upstream.ok) return upstreamError(ctx, s, upstream);
   return finish(ctx, upstream, await upstream.json());
 }
 
@@ -240,7 +261,7 @@ async function passkeyVerifyAuthentication(ctx: RequestContext, s: AuthServices)
   const upstream = await s.auth.handler(rebuild(ctx.request, ctx.url, body));
   if (!upstream.ok) {
     ctx.logger.warn("auth.passkey.login.failure", { status: upstream.status });
-    return upstreamError(ctx, upstream);
+    return upstreamError(ctx, s, upstream);
   }
   // Better Auth's body includes the session (and its token): never sent on.
   await upstream.body?.cancel();
@@ -255,7 +276,7 @@ async function passkeyRegisterOptions(ctx: RequestContext, s: AuthServices): Pro
   if (query.name) url.searchParams.set("name", query.name);
   if (query.authenticatorAttachment) url.searchParams.set("authenticatorAttachment", query.authenticatorAttachment);
   const upstream = await s.auth.handler(rebuild(ctx.request, url));
-  if (!upstream.ok) return upstreamError(ctx, upstream);
+  if (!upstream.ok) return upstreamError(ctx, s, upstream);
   return finish(ctx, upstream, await upstream.json());
 }
 
@@ -264,14 +285,32 @@ async function passkeyVerifyRegistration(ctx: RequestContext, s: AuthServices): 
   await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
   const body = parse(PasskeyRegisterBody, await readJson(ctx.request));
   const upstream = await s.auth.handler(rebuild(ctx.request, ctx.url, body));
-  if (!upstream.ok) return upstreamError(ctx, upstream);
+  if (!upstream.ok) return upstreamError(ctx, s, upstream);
   const created: unknown = await upstream.json();
-  const id = typeof created === "object" && created !== null ? Reflect.get(created, "id") : undefined;
+  const rawId = typeof created === "object" && created !== null ? Reflect.get(created, "id") : undefined;
+  const id = typeof rawId === "string" ? rawId : null;
+  // The stored row (scoped to the caller) identifies the passkey in the audit trail.
+  const row = id
+    ? await (await s.auth.$context).adapter.findOne<PasskeyIdentity>({
+        model: "passkey",
+        where: [
+          { field: "id", value: id },
+          { field: "userId", value: principal.authUserId },
+        ],
+      })
+    : null;
   s.audit.bestEffort(
-    { actor: { type: "user", id: principal.userProfileId }, action: "auth.passkey.add", requestId: ctx.requestId, result: "success", security: await s.securityMetadata() },
+    {
+      actor: { type: "user", id: principal.userProfileId },
+      action: "auth.passkey.add",
+      requestId: ctx.requestId,
+      result: "success",
+      ...(row ? await passkeyAuditFields(row) : {}),
+      security: await s.securityMetadata(),
+    },
     ctx.waitUntil,
   );
-  return finish(ctx, upstream, { ok: true, data: { id: typeof id === "string" ? id : null } });
+  return finish(ctx, upstream, { ok: true, data: { id } });
 }
 
 type Handler = (ctx: RequestContext, services: AuthServices) => Promise<Response>;
