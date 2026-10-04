@@ -22,8 +22,13 @@ normal workflow: it skips transition checks and leaves no audit record.
 - There is no admin identity system yet. The **authorization boundary is
   access to the Cloudflare account** that holds the D1 database (the
   operator's own `wrangler login`). The operator id (`opr_…`) names who acted
-  in the audit trail; it is not authentication. Keep account membership
-  small and API tokens scoped.
+  in the audit trail; it is a label, not authentication. Keep account
+  membership small and API tokens scoped.
+- The operator id is **never built in**: each run needs `--operator opr_…` or
+  `LIGHTAGENT_OPERATOR_ID` from the operator's own trusted environment (e.g.
+  their shell profile), otherwise the CLI refuses. Each person uses their own
+  id. (`opr_claudecodeagent` appears in the staging audit trail for the
+  Phase 4.5 verification run only.)
 
 ## Running it
 

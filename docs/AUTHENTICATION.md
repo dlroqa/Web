@@ -19,6 +19,11 @@ Upgrade procedure:
    `npm run auth:schema -- generate`, review the SQL, and add it as a **new**
    migration.
 4. Run `npm test`. The auth and passkey contract tests must pass.
+5. Re-evaluate session storage: check the release notes and source for a
+   supported hashed or opaque session-token mode, and review it before
+   adopting it ([SESSION_STORAGE_SECURITY.md](SESSION_STORAGE_SECURITY.md)).
+   Confirm `disableSessionRefresh` and `expiresIn` still mean an absolute
+   lifetime.
 
 ## Identity model
 
@@ -180,7 +185,7 @@ takeover attempts.
 
 | Cookie | Attributes |
 |---|---|
-| `lightagent.session_token` (`__Secure-lightagent.session_token` over HTTPS) | `HttpOnly`, `Secure` (HTTPS), **`SameSite=Strict`**, `Path=/api`, 7-day max age |
+| `lightagent.session_token` (`__Secure-lightagent.session_token` over HTTPS) | `HttpOnly`, `Secure` (HTTPS), **`SameSite=Strict`**, `Path=/api`, 24-hour max age |
 | `lightagent.state`, passkey challenge cookie | `HttpOnly`, `Secure` (HTTPS), `SameSite=Lax`, `Path=/api` |
 
 - Why two SameSite values: the OAuth state cookie must be sent on the
@@ -195,13 +200,12 @@ takeover attempts.
   is never adopted (fixation test).
 - `session.ipAddress` is never filled (`disableIpTracking`; a CHECK constraint
   enforces it). Sessions keep the user agent, shown as a coarse "Browser on OS".
-- Lifetimes: `expiresIn` 7 days, `updateAge` 1 day, `freshAge` 10 minutes.
-  This is a **sliding** window: once a session is a day old, each use pushes
-  its expiry to 7 days from now, so there is no absolute maximum. A shorter,
-  absolute lifetime is recommended and awaiting approval
-  ([SESSION_STORAGE_SECURITY.md](SESSION_STORAGE_SECURITY.md#lifetime)).
+- Lifetime: **24 hours absolute** (`expiresIn: 86400`,
+  `disableSessionRefresh: true`). Use never extends a session; after 24 hours
+  the user signs in again. "Fresh" (recent authentication) = 10 minutes after
+  sign-in.
 - `session.token` is stored raw in D1 (Better Auth 1.7.7 has no hashed
-  storage). This is an open production decision; see
+  storage). This is accepted with mandatory compensating controls; see
   [SESSION_STORAGE_SECURITY.md](SESSION_STORAGE_SECURITY.md).
 
 ### Session revocation and `revocation_version`
@@ -329,6 +333,8 @@ id/secret is simply not offered.
 | `google.prompt` | none | `select_account` | explicit account choice |
 | `emailAndPassword.enabled` | false | false (explicit) | no passwords |
 | `session.cookieCache` | disabled | disabled (explicit) | immediate revocation |
+| `session.expiresIn` | 7 days | **24 hours** | absolute lifetime for a control plane |
+| `session.disableSessionRefresh` | false | **true** | use never extends a session |
 | `session.freshAge` | 1 day | **10 minutes** | recent authentication for passkey changes |
 | `advanced.cookiePrefix` | `better-auth` | `lightagent` | |
 | `advanced.defaultCookieAttributes.path` | `/` | **`/api`** | narrow cookie scope |

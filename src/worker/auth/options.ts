@@ -15,8 +15,12 @@ export const COOKIE_PREFIX = "lightagent";
 /** Cookies are only ever needed by /api requests. */
 export const AUTH_COOKIE_PATH = "/api";
 
-export const SESSION_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60;
-export const SESSION_UPDATE_AGE_SECONDS = 24 * 60 * 60;
+/**
+ * Absolute session lifetime: a session (and its cookie) ends 24 hours after
+ * sign-in. Activity never extends it (`disableSessionRefresh`); after that
+ * the user signs in again. See docs/SESSION_STORAGE_SECURITY.md.
+ */
+export const SESSION_EXPIRES_IN_SECONDS = 24 * 60 * 60;
 /**
  * A session counts as "fresh" (recent authentication) for this long after
  * sign-in. Passkey registration and removal require a fresh session.
@@ -86,7 +90,8 @@ export function buildAuthOptions(input: AuthOptionsInput) {
     emailAndPassword: { enabled: false },
     session: {
       expiresIn: SESSION_EXPIRES_IN_SECONDS,
-      updateAge: SESSION_UPDATE_AGE_SECONDS,
+      // Fixed expiry: use never slides it (Better Auth's supported option).
+      disableSessionRefresh: true,
       freshAge: SESSION_FRESH_AGE_SECONDS,
       // Every request is checked against D1, so a revoked session stops
       // working immediately (a cookie cache would keep it alive).

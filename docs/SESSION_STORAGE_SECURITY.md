@@ -1,8 +1,11 @@
 # Session storage security
 
-Status: **open production decision.** Raw session tokens are stored in D1.
-This is acceptable on staging with the compensating controls below. It is
-**not** resolved for production and needs explicit review before launch.
+Status: **accepted (2026-10-04)** with mandatory compensating controls.
+The project keeps Better Auth 1.7.7's supported session-storage model (raw
+session tokens in D1). No custom hashing layer, no patch to Better Auth.
+This is a **security dependency to re-evaluate on every Better Auth
+upgrade**: if a supported hashed or opaque session-token storage mode
+appears, review it before adopting it. Never build an incompatible one.
 
 Findings are from the installed Better Auth 1.7.7 source
 (`better-auth/dist/db/internal-adapter.mjs`, `api/routes/session.mjs`,
@@ -53,7 +56,7 @@ model, so it is **not implemented**, as decided.
 
 | Asset | `session.token` rows in D1 (and their user ids) |
 |---|---|
-| Valid for | up to 7 days from last refresh (see *Lifetime*), until revoked |
+| Valid for | at most 24 hours after sign-in (see *Lifetime*), or until revoked |
 | Who can read D1 | anyone with the Cloudflare account's D1 read permission (dashboard, API token, `wrangler d1 execute`); the Worker itself |
 | Not exposed | D1 has no public endpoint; the Worker never returns session rows or tokens (only opaque session ids); tokens aren't logged or audited (tests scan logs, audit rows, and responses) |
 
@@ -79,7 +82,10 @@ their profile, security settings and passkey management (not removal, which
 needs a fresh session). After Phase 5, it means agent provisioning. An
 account suspension still blocks a stolen session immediately.
 
-## Compensating controls in place
+## Mandatory compensating controls
+
+All of these are required while raw tokens are stored. Removing or
+weakening any of them reopens the decision.
 
 | Control | Where |
 |---|---|
@@ -91,40 +97,41 @@ account suspension still blocks a stolen session immediately.
 | Application status checked on every request (suspension wins over any session) | `requirePrincipal` |
 | Incident: revoke one user's sessions, or every session, with an audit event | `npm run operator -- revoke-sessions` / `revoke-all-sessions` ([OPERATIONS.md](OPERATIONS.md)) |
 | Rotating `BETTER_AUTH_SECRET` invalidates every cookie signature (all sessions end) | `wrangler secret put BETTER_AUTH_SECRET --env …` |
-| Narrow Cloudflare account access | operational: few members, scoped API tokens, no read-all tokens in CI |
+| Cloudflare account membership tightly limited | operational |
+| Least-privilege API tokens (no broad D1 read tokens, none in CI) | operational |
+| Session cookie `HttpOnly`, `Secure`, host-only, `SameSite=Strict` | `options.ts`, tests |
+| Suspension/disable checked on every authenticated request | `requirePrincipal`, tests |
+| 24-hour absolute session lifetime | `options.ts` (see *Lifetime*) |
+| Emergency global invalidation: rotate `BETTER_AUTH_SECRET` | [OPERATIONS.md](OPERATIONS.md) |
 
 ## Lifetime
 
-Current settings: `expiresIn = 7 days`, `updateAge = 1 day`,
-`freshAge = 10 minutes`.
+**Current (approved 2026-10-04): 24-hour absolute.** `expiresIn: 86400`
+with `disableSessionRefresh: true`, both supported Better Auth options; no
+custom timer. A session and its cookie expire 24 hours after sign-in; use
+never extends it; after that the user signs in again. `freshAge` stays 10
+minutes for passkey changes (and later sensitive operations). Sign-out,
+revocation, and suspension still end access immediately. Tests use fake
+time to prove each of these (`tests/integration/session-lifetime.test.ts`).
 
-Better Auth's refresh rule (`api/routes/session.mjs`): on each authenticated
-request, if `expiresAt − expiresIn + updateAge ≤ now` (at least a day has
-passed since the last refresh), it sets `expiresAt = now + expiresIn`.
+Before this change the settings were `expiresIn = 7 days`, `updateAge = 1
+day`. Better Auth's refresh rule (`api/routes/session.mjs`): on each
+authenticated request, if `expiresAt − expiresIn + updateAge ≤ now`, it sets
+`expiresAt = now + expiresIn`. That made the old lifetime a sliding 7-day
+idle timeout with no absolute maximum.
 
-So today a session:
-
-- expires after **7 days without use** (idle timeout), and
-- has **no absolute maximum**: one used at least weekly never expires.
-
-Better Auth 1.7.7 offers `session.disableSessionRefresh: true`, which makes
-`expiresIn` an absolute lifetime (no sliding), but no separate absolute cap
-combined with an idle timeout.
-
-### Recommendation (not applied; needs approval)
+### Options considered
 
 For a control plane that will provision agents:
 
 | Option | How | Effect |
 |---|---|---|
-| **A (recommended)**: 24 h absolute | `expiresIn: 86400`, `disableSessionRefresh: true` | sign in once a day; supported option, no custom code; a stolen token is useful for at most 24 h |
+| **A (chosen)**: 24 h absolute | `expiresIn: 86400`, `disableSessionRefresh: true` | sign in once a day; supported option, no custom code; a stolen token is useful for at most 24 h |
 | B: 12 h idle + 72 h absolute | `expiresIn: 43200`, `updateAge: 3600`, plus an application check `now − session.createdAt ≤ 72 h` in `requirePrincipal` | smoother for daily users; adds one small application rule |
 | C: keep 7 days sliding | — | most convenient; a stolen session can live indefinitely |
 
-Sensitive operations already require a fresh session (10 minutes) whatever
-the lifetime: passkey add and remove now, and agent creation in Phase 5.
-Passkey sign-in makes daily re-authentication cheap. Changing the lifetime
-affects the login experience, so it waits for approval.
+Sensitive operations require a fresh session (10 minutes) whatever the
+lifetime. Passkey sign-in makes daily re-authentication cheap.
 
 ## Supported mitigation options
 
@@ -138,16 +145,14 @@ affects the login experience, so it waits for approval.
 | Hashed tokens via a custom adapter | **not supported** | yes | fragile, version-coupled: rejected |
 | Upstream feature (hashed session tokens) | not in 1.7.7 | yes | wait; re-check at each Better Auth upgrade |
 
-## Recommendation for this project
+## Decision
 
-1. Keep Better Auth's supported storage model. Don't patch the lookup.
-2. Before production: decide the lifetime (option A recommended) and
-   confirm the operational controls (Cloudflare members, API token scopes,
-   no D1 export procedure outside the account).
-3. Check each Better Auth upgrade for hashed or opaque session-token storage,
-   and adopt it if it appears.
-4. Treat raw session-token storage as an **accepted, documented production
-   risk that needs explicit sign-off**. It is not resolved.
-
-**Required before production:** a sign-off on this risk, and a lifetime
-decision. A code change isn't required unless the sign-off says otherwise.
+1. Keep Better Auth's supported storage model. Don't patch the lookup or
+   add a hashing layer. **Accepted.**
+2. Keep every mandatory control above. Before production, confirm the
+   operational ones (Cloudflare members, API token scopes, no D1 export
+   outside the account).
+3. On every Better Auth upgrade, check for a supported hashed or opaque
+   session-token storage mode, and review it before adopting it (step 5 of
+   the upgrade procedure in [AUTHENTICATION.md](AUTHENTICATION.md)).
+4. Session lifetime: 24 hours absolute. **Applied.**
