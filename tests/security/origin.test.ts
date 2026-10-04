@@ -98,7 +98,8 @@ describe("state-changing API requests", () => {
   });
 
   it("are all rejected when the environment trusts no origins", async () => {
-    const env = testEnv({ TRUSTED_ORIGINS: "" });
+    // Production's current shape: no trusted origins and no auth origin.
+    const env = testEnv({ TRUSTED_ORIGINS: "", PUBLIC_ORIGIN: "", PASSKEY_RP_ID: "" });
     const response = await call("/api/anything", { method: "POST", headers: { origin: BASE } }, { env });
     expect(response.status).toBe(403);
   });

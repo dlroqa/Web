@@ -51,11 +51,23 @@ export interface CallOptions {
   env?: Env;
 }
 
-/** Send a request through the Worker as the runtime would. */
+/** A random TEST-NET-3 address, like a distinct real client. */
+export function randomClientIp(): string {
+  const [a = 0, b = 0] = crypto.getRandomValues(new Uint8Array(2));
+  return `203.0.${a}.${b}`;
+}
+
+/**
+ * Send a request through the Worker as the runtime would. Each request comes
+ * from a random client address (CF-Connecting-IP) unless the test sets one,
+ * so per-IP rate limits behave as they would for real, distinct clients.
+ */
 export async function call(path: string, init?: RequestInit, options: CallOptions = {}): Promise<Response> {
   const worker = createWorker({ cspMode: options.mode ?? "production" });
   const ctx = createExecutionContext();
-  const response = await worker.fetch(new Request(`${BASE}${path}`, init), options.env ?? testEnv(), ctx);
+  const request = new Request(`${BASE}${path}`, init);
+  if (!request.headers.has("cf-connecting-ip")) request.headers.set("cf-connecting-ip", randomClientIp());
+  const response = await worker.fetch(request, options.env ?? testEnv(), ctx);
   await waitOnExecutionContext(ctx);
   return response;
 }

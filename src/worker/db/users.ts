@@ -79,6 +79,35 @@ export class UserRepository {
     return toUser(row);
   }
 
+  /**
+   * Return the profile for `authUserId`, creating it if absent. One atomic
+   * INSERT … ON CONFLICT DO NOTHING: concurrent first sign-ins create exactly
+   * one row (the UNIQUE auth_user_id constraint is the final guard).
+   */
+  async createIfAbsent(input: {
+    authUserId: string;
+    displayName?: string | null;
+    initialStatus: "pending" | "active";
+  }): Promise<{ user: UserProfile; created: boolean }> {
+    const authUserId = AuthUserId.parse(input.authUserId);
+    const displayName = input.displayName == null ? null : NameSchema.parse(input.displayName);
+    const now = this.now();
+    const inserted = await guard(() =>
+      this.db
+        .prepare(
+          `INSERT INTO user_profiles (id, auth_user_id, display_name, status, created_at, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+           ON CONFLICT (auth_user_id) DO NOTHING RETURNING *`,
+        )
+        .bind(randomId("usr"), authUserId, displayName, input.initialStatus, now)
+        .first(),
+    );
+    if (inserted) return { user: toUser(inserted), created: true };
+    const existing = await this.getByAuthUserId(authUserId);
+    if (!existing) throw new NotFoundError("user");
+    return { user: existing, created: false };
+  }
+
   async getById(userId: string): Promise<UserProfile | null> {
     const row = await guard(() => this.db.prepare(`SELECT * FROM user_profiles WHERE id = ?1`).bind(userId).first());
     return row ? toUser(row) : null;

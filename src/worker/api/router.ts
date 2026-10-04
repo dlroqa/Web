@@ -11,6 +11,8 @@ import type { RequestContext } from "../http/context";
 import { ApiError } from "../http/errors";
 import { jsonRaw, type ResponseMeta } from "../http/responses";
 import { checkOrigin, isStateChanging } from "../security/origin";
+import { handleAuthRoute, isAuthPath } from "../auth/gateway";
+import { handleAccountRoute, publicConfig } from "./security";
 
 export function isApiPath(pathname: string): boolean {
   return pathname === "/health" || pathname === "/api" || pathname.startsWith("/api/");
@@ -46,6 +48,17 @@ export async function handleApi(ctx: RequestContext): Promise<Response> {
     }
   }
 
-  // Routes are added in later phases (auth, account, agent profiles).
+  // Better Auth's endpoints, behind an allowlist gateway.
+  if (isAuthPath(url.pathname)) return handleAuthRoute(ctx);
+
+  if (url.pathname === "/api/config") {
+    if (request.method !== "GET") throw new ApiError("METHOD_NOT_ALLOWED", { headers: { allow: "GET" } });
+    return publicConfig(ctx);
+  }
+
+  const account = await handleAccountRoute(ctx);
+  if (account) return account;
+
+  // Agent-profile routes arrive in Phase 6.
   throw new ApiError("NOT_FOUND");
 }

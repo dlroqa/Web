@@ -12,10 +12,17 @@
 import type { Logger } from "../utils/log";
 import { ApiError } from "../http/errors";
 
-export type RateLimitPolicy = "login" | "signup" | "recovery" | "provision" | "read";
+export type RateLimitPolicy =
+  | "login"
+  | "signup"
+  | "recovery"
+  | "provision"
+  | "read"
+  | "passkey_login"
+  | "security_write";
 
 interface PolicyDefinition {
-  binding: "RL_LOGIN" | "RL_SIGNUP" | "RL_RECOVERY" | "RL_PROVISION" | "RL_READ";
+  binding: "RL_LOGIN" | "RL_SIGNUP" | "RL_RECOVERY" | "RL_PROVISION" | "RL_READ" | "RL_PASSKEY_LOGIN" | "RL_SECURITY_WRITE";
   /** Seconds until the window resets; sent as Retry-After. Matches wrangler period. */
   periodSeconds: 10 | 60;
   /**
@@ -31,6 +38,8 @@ export const RATE_LIMIT_POLICIES: Readonly<Record<RateLimitPolicy, PolicyDefinit
   recovery: { binding: "RL_RECOVERY", periodSeconds: 60, onLimiterFailure: "deny" },
   provision: { binding: "RL_PROVISION", periodSeconds: 60, onLimiterFailure: "deny" },
   read: { binding: "RL_READ", periodSeconds: 60, onLimiterFailure: "allow" },
+  passkey_login: { binding: "RL_PASSKEY_LOGIN", periodSeconds: 60, onLimiterFailure: "deny" },
+  security_write: { binding: "RL_SECURITY_WRITE", periodSeconds: 60, onLimiterFailure: "deny" },
 };
 
 /**

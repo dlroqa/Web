@@ -41,7 +41,7 @@ export function normalizeAddress(address: string): string {
 }
 
 export async function hashSource(address: string, key: Uint8Array): Promise<string> {
-  return hmacSha256Hex(key, `source:v1:${normalizeAddress(address)}`);
+  return hmacSha256Hex(key, `lightagent-audit-source:v1:${normalizeAddress(address)}`);
 }
 
 /** Build the security metadata for an incoming request. */

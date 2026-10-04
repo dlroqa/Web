@@ -27,7 +27,15 @@
     "ENVIRONMENT": "development",
     "TRUSTED_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
     "HSTS_MAX_AGE": "0",
-    "TURNSTILE_EXPECTED_HOSTNAMES": "localhost,127.0.0.1"
+    "TURNSTILE_EXPECTED_HOSTNAMES": "localhost,127.0.0.1",
+    // Exact public origin (Better Auth baseURL, OAuth callbacks, passkey origin).
+    "PUBLIC_ORIGIN": "http://localhost:5173",
+    // WebAuthn relying-party id: the public origin's hostname, never a wildcard.
+    "PASSKEY_RP_ID": "localhost",
+    // "open": first sign-in creates an active account. "approval": pending until an operator activates it.
+    "SIGNUP_POLICY": "open",
+    // Cloudflare's public always-pass test site key; development only.
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA"
   },
 
   // D1: one database per environment. Database ids are not secrets. Each
@@ -44,12 +52,14 @@
   // Cloudflare rate limiters, one per policy. namespace_id is account-scoped,
   // so each environment uses its own range to keep counters separate.
   "ratelimits": [
-    { "name": "RL_LOGIN", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
-    { "name": "RL_SIGNUP", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } },
-    { "name": "RL_RECOVERY", "namespace_id": "1003", "simple": { "limit": 3, "period": 60 } },
-    { "name": "RL_PROVISION", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
-    { "name": "RL_READ", "namespace_id": "1005", "simple": { "limit": 120, "period": 60 } }
-  ],
+        { "name": "RL_LOGIN", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },
+        { "name": "RL_SIGNUP", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } },
+        { "name": "RL_RECOVERY", "namespace_id": "1003", "simple": { "limit": 3, "period": 60 } },
+        { "name": "RL_PROVISION", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
+        { "name": "RL_READ", "namespace_id": "1005", "simple": { "limit": 120, "period": 60 } },
+        { "name": "RL_PASSKEY_LOGIN", "namespace_id": "1006", "simple": { "limit": 20, "period": 60 } },
+        { "name": "RL_SECURITY_WRITE", "namespace_id": "1007", "simple": { "limit": 20, "period": 60 } }
+      ],
 
   "env": {
     "staging": {
@@ -58,7 +68,11 @@
         "ENVIRONMENT": "staging",
         "TRUSTED_ORIGINS": "https://lightagent-control-staging.eddelaroca.workers.dev",
         "HSTS_MAX_AGE": "0",
-        "TURNSTILE_EXPECTED_HOSTNAMES": "lightagent-control-staging.eddelaroca.workers.dev"
+        "TURNSTILE_EXPECTED_HOSTNAMES": "lightagent-control-staging.eddelaroca.workers.dev",
+        "PUBLIC_ORIGIN": "https://lightagent-control-staging.eddelaroca.workers.dev",
+        "PASSKEY_RP_ID": "lightagent-control-staging.eddelaroca.workers.dev",
+        "SIGNUP_POLICY": "approval",
+        "TURNSTILE_SITE_KEY": ""
       },
       "d1_databases": [
         {
@@ -69,11 +83,13 @@
         }
       ],
       "ratelimits": [
-        { "name": "RL_LOGIN", "namespace_id": "2001", "simple": { "limit": 10, "period": 60 } },
-        { "name": "RL_SIGNUP", "namespace_id": "2002", "simple": { "limit": 5, "period": 60 } },
+        { "name": "RL_LOGIN", "namespace_id": "2001", "simple": { "limit": 20, "period": 60 } },
+        { "name": "RL_SIGNUP", "namespace_id": "2002", "simple": { "limit": 10, "period": 60 } },
         { "name": "RL_RECOVERY", "namespace_id": "2003", "simple": { "limit": 3, "period": 60 } },
         { "name": "RL_PROVISION", "namespace_id": "2004", "simple": { "limit": 5, "period": 60 } },
-        { "name": "RL_READ", "namespace_id": "2005", "simple": { "limit": 120, "period": 60 } }
+        { "name": "RL_READ", "namespace_id": "2005", "simple": { "limit": 120, "period": 60 } },
+        { "name": "RL_PASSKEY_LOGIN", "namespace_id": "2006", "simple": { "limit": 20, "period": 60 } },
+        { "name": "RL_SECURITY_WRITE", "namespace_id": "2007", "simple": { "limit": 20, "period": 60 } }
       ]
     },
     "production": {
@@ -85,7 +101,12 @@
         "ENVIRONMENT": "production",
         "TRUSTED_ORIGINS": "",
         "HSTS_MAX_AGE": "0",
-        "TURNSTILE_EXPECTED_HOSTNAMES": ""
+        "TURNSTILE_EXPECTED_HOSTNAMES": "",
+        // Empty until the production hostname is approved: sign-in is disabled.
+        "PUBLIC_ORIGIN": "",
+        "PASSKEY_RP_ID": "",
+        "SIGNUP_POLICY": "approval",
+        "TURNSTILE_SITE_KEY": ""
       },
       "d1_databases": [
         {
@@ -96,11 +117,13 @@
         }
       ],
       "ratelimits": [
-        { "name": "RL_LOGIN", "namespace_id": "3001", "simple": { "limit": 10, "period": 60 } },
-        { "name": "RL_SIGNUP", "namespace_id": "3002", "simple": { "limit": 5, "period": 60 } },
+        { "name": "RL_LOGIN", "namespace_id": "3001", "simple": { "limit": 20, "period": 60 } },
+        { "name": "RL_SIGNUP", "namespace_id": "3002", "simple": { "limit": 10, "period": 60 } },
         { "name": "RL_RECOVERY", "namespace_id": "3003", "simple": { "limit": 3, "period": 60 } },
         { "name": "RL_PROVISION", "namespace_id": "3004", "simple": { "limit": 5, "period": 60 } },
-        { "name": "RL_READ", "namespace_id": "3005", "simple": { "limit": 120, "period": 60 } }
+        { "name": "RL_READ", "namespace_id": "3005", "simple": { "limit": 120, "period": 60 } },
+        { "name": "RL_PASSKEY_LOGIN", "namespace_id": "3006", "simple": { "limit": 20, "period": 60 } },
+        { "name": "RL_SECURITY_WRITE", "namespace_id": "3007", "simple": { "limit": 20, "period": 60 } }
       ]
     }
   }

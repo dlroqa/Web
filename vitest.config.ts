@@ -20,12 +20,25 @@ export default defineConfig(async () => {
               wrangler: { configPath: "./wrangler.jsonc" },
               miniflare: {
                 compatibilityDate: "2026-08-22",
-                bindings: { TEST_MIGRATIONS: migrations },
+                bindings: {
+                  TEST_MIGRATIONS: migrations,
+                  // Test-only placeholders, not credentials. Provider endpoints
+                  // are stubbed in tests; Turnstile uses Cloudflare's public
+                  // always-pass test secret (accepted only in development).
+                  BETTER_AUTH_SECRET: "test-only-better-auth-secret-0123456789abcdef",
+                  GOOGLE_CLIENT_ID: "test-google-client-id",
+                  GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+                  GITHUB_CLIENT_ID: "test-github-client-id",
+                  GITHUB_CLIENT_SECRET: "test-github-client-secret",
+                  TURNSTILE_SECRET: "1x0000000000000000000000000000000AA",
+                },
               },
             }),
           ],
           test: {
             name: "workers",
+            // Integration tests run full OAuth/passkey flows (RSA keys, D1).
+            testTimeout: 20_000,
             include: ["tests/{unit,security,db,integration,contracts}/**/*.test.ts"],
             setupFiles: ["./tests/helpers/apply-migrations.ts"],
           },
