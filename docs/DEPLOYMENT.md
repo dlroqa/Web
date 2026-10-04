@@ -260,3 +260,17 @@ everywhere left the (now invalid) session cookie in the browser.
 
 Staging test identities created: one Google user (now `active`) and one
 GitHub user (kept `pending`); see [OPERATIONS.md](OPERATIONS.md#staging-test-accounts).
+
+### 2026-10-04: main after the Phase 4.5 merge
+
+`phase-4.5-auth-hardening` merged into `main` with a merge commit
+(`0369ae2`, history kept), adding the 24-hour absolute session lifetime
+(`expiresIn: 86400`, `disableSessionRefresh: true`). From `main`: typecheck,
+488 tests, staging build, 10 build-output tests, Better Auth schema check,
+`npm audit --omit=dev` (0 vulnerabilities). Deployed `main` as version
+`04468849-d90a-4b6f-b9b6-448fa3c7ee2f`, tag `main-0369ae2`, message
+`main 0369ae2 (Phase 4.5 merged)`.
+
+Staging state: `usr_zabx…` active, `usr_bcv3…` pending, 0 sessions,
+0 passkeys, 0 verification rows, no provider tokens, 0 agent profiles,
+provisioning jobs, or harnesses. Production untouched.
