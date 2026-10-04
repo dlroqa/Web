@@ -9,12 +9,13 @@
  * receives always comes from Better Auth's server-side session, never from
  * the browser.
  */
+import { ACCESS_STATUSES } from "../../shared/access";
 import type { SignupPolicy } from "../config/config";
 import { UserRepository, type UserProfile, type UserStatus } from "../db/users";
 import { enforceRateLimit, type RateLimiter } from "../security/rate-limit";
 
-/** Statuses that may hold a session at all (suspended/disabled may not). */
-export const SESSION_ALLOWED_STATUSES: readonly UserStatus[] = ["active", "pending"];
+/** Statuses that may hold a session at all (suspended/disabled may not): the `identity` access level. */
+export const SESSION_ALLOWED_STATUSES: readonly UserStatus[] = ACCESS_STATUSES.identity;
 
 /** Maximum stored display name; longer provider names are truncated. */
 const DISPLAY_NAME_MAX = 80;

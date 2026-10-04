@@ -46,5 +46,5 @@ export async function addPasskey(name: string): Promise<void> {
 }
 
 export function passkeysSupported(): boolean {
-  return typeof window.PublicKeyCredential === "function";
+  return typeof window !== "undefined" && typeof window.PublicKeyCredential === "function";
 }

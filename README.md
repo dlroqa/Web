@@ -18,8 +18,8 @@ credential. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 | 2 | Security foundation ([docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md)) | done |
 | 3 | D1 schema and repositories ([docs/DATABASE.md](docs/DATABASE.md)) | done |
 | 4 | Authentication: Better Auth, OAuth, passkeys ([docs/AUTHENTICATION.md](docs/AUTHENTICATION.md)) | done (validated on staging with real providers) |
-| 4.5 | Auth hardening: error mapping, operator CLI ([docs/OPERATIONS.md](docs/OPERATIONS.md)), session-storage review ([docs/SESSION_STORAGE_SECURITY.md](docs/SESSION_STORAGE_SECURITY.md)) | in review |
-| 5 | Account UI | not started |
+| 4.5 | Auth hardening: error mapping, operator CLI ([docs/OPERATIONS.md](docs/OPERATIONS.md)), session-storage review ([docs/SESSION_STORAGE_SECURITY.md](docs/SESSION_STORAGE_SECURITY.md)), 24-hour sessions | done |
+| 5 | Account and security UI, shared access policy | in review |
 
 ## Requirements
 
@@ -36,7 +36,7 @@ credential. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 npm ci            # install from the lockfile
 npm run dev       # Vite dev server with the Worker running in workerd
 npm run typecheck # client, worker, operator, and tooling projects
-npm test          # Vitest: workerd (unit, security, D1) + static source checks
+npm test          # Vitest: workerd (unit, security, D1, integration), static source checks, client rendering
 npm run build     # client assets + Worker bundle into dist/
 npm run test:build  # checks on dist/ (no inline JS, no secrets, production CSP)
 npm run check     # typecheck + test + build + test:build

@@ -44,6 +44,10 @@ export default defineConfig(async () => {
           },
         },
         {
+          // Client components rendered with react-dom/server: route gate, escaping, API client.
+          test: { name: "client", include: ["tests/client/**/*.test.tsx"], environment: "node" },
+        },
+        {
           // Source-level checks that need the filesystem (no build required).
           test: { name: "static", include: ["tests/static/**/*.test.ts"], environment: "node" },
         },

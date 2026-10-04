@@ -1,10 +1,16 @@
 /**
- * Account endpoints for the signed-in user:
+ * Account endpoints for the signed-in user. Each route declares its access
+ * level from src/shared/access.ts (the policy the browser's route gate also
+ * uses); `handleAccountRoute` resolves the principal at that level before
+ * any handler runs, so no handler checks status itself.
  *
  *   GET    /api/config                      public sign-in options (no auth)
  *   GET    /api/session                     sign-in state probe for the SPA (always 200)
- *   GET    /api/me                          application identity
- *   GET    /api/security/methods            connected sign-in methods
+ *   GET    /api/me                          application identity          (identity)
+ *   PATCH  /api/me                          change display name           (active)
+ *   GET    /api/account/overview            dashboard summary             (active)
+ *   GET    /api/agents                      the caller's agent profiles, read-only (active)
+ *   GET    /api/security/methods            connected sign-in methods     (active, as below)
  *   GET    /api/security/sessions           active sessions (no tokens)
  *   DELETE /api/security/sessions/:id       revoke one of the caller's sessions
  *   POST   /api/security/sessions/revoke-all   revoke every session, including this one
@@ -18,7 +24,9 @@
  * (404). Better Auth session tokens never leave the Worker: sessions are
  * addressed by their opaque id and revoked by token server-side.
  */
+import type { Access } from "../../shared/access";
 import { z } from "../../shared/zod";
+import { AgentProfileRepository } from "../db/agent-profiles";
 import { AuditRepository } from "../db/audit";
 import { NameSchema } from "../db/common";
 import type { RequestContext } from "../http/context";
@@ -29,8 +37,6 @@ import { enforceRateLimit } from "../security/rate-limit";
 import { SESSION_FRESH_AGE_SECONDS } from "../auth/options";
 import { passkeyAuditFields } from "../auth/passkey-audit";
 import { createAuthServices, type AuthServices, type Principal } from "../auth/services";
-
-const ACCOUNT_STATUSES = ["active", "pending"] as const;
 
 /** Better Auth ids: opaque, but bounded and simple so they are safe in paths. */
 const OpaqueId = z.string().regex(/^[A-Za-z0-9_-]{8,128}$/);
@@ -123,34 +129,64 @@ function requireFresh(principal: Principal): void {
 }
 
 const RenameBody = z.object({ name: NameSchema }).strict();
+const DisplayNameBody = z.object({ displayName: NameSchema }).strict();
 
-type Handler = (ctx: RequestContext, s: AuthServices, params: Record<string, string>) => Promise<Response>;
+type Handler = (ctx: RequestContext, s: AuthServices, params: Record<string, string>, principal: Principal) => Promise<Response>;
+
+async function loadMe(s: AuthServices, principal: Principal) {
+  const user = await s.users.getById(principal.userProfileId);
+  if (!user) throw new ApiError("INTERNAL_ERROR", { logReason: "principal without profile" });
+  return { id: user.id, displayName: user.displayName, status: user.status };
+}
 
 const handlers = {
-  async me(ctx, s) {
-    const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
-    const user = await s.users.getById(principal.userProfileId);
-    if (!user) throw new ApiError("INTERNAL_ERROR", { logReason: "principal without profile" });
+  async me(ctx, s, _params, principal) {
+    return jsonOk(await loadMe(s, principal), meta(ctx));
+  },
+
+  async updateMe(ctx, s, _params, principal) {
+    await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
+    const { displayName } = await parseJsonBody(ctx.request, DisplayNameBody);
+    const user = await s.users.updateDisplayName(principal.userProfileId, displayName);
+    s.audit.bestEffort(
+      // The new name itself is not recorded (it is personal data, and shown on the profile).
+      { actor: { type: "user", id: principal.userProfileId }, action: "account.profile.update", requestId: ctx.requestId, result: "success", metadata: { field: "displayName" }, security: await s.securityMetadata() },
+      ctx.waitUntil,
+    );
     return jsonOk({ id: user.id, displayName: user.displayName, status: user.status }, meta(ctx));
   },
 
-  /**
-   * Bootstrap probe: whether the browser is signed in, without a 401 (which
-   * browsers log as an error) when it is not. Same fields as /api/me.
-   */
-  async session(ctx, s) {
-    const principal = await s.currentPrincipal();
-    if (!principal) return jsonOk({ signedIn: false }, meta(ctx));
-    if (principal.status === "suspended" || principal.status === "disabled") {
-      return jsonOk({ signedIn: false, blocked: true }, meta(ctx));
-    }
-    const user = await s.users.getById(principal.userProfileId);
-    if (!user) throw new ApiError("INTERNAL_ERROR", { logReason: "principal without profile" });
-    return jsonOk({ signedIn: true, me: { id: user.id, displayName: user.displayName, status: user.status } }, meta(ctx));
+  async overview(ctx, s, _params, principal) {
+    await enforceRateLimit(s.limiter, "read", { kind: "user", id: principal.userProfileId });
+    const me = await loadMe(s, principal);
+    const adapter = await adapterOf(s);
+    const [accounts, passkeyRows, sessions, agents] = await Promise.all([
+      adapter.findAccounts(principal.authUserId),
+      ownPasskeys(s, principal),
+      adapter.listSessions(principal.authUserId, { onlyActiveSessions: true }),
+      new AgentProfileRepository(ctx.env.DB).forUser(principal.userProfileId).countLive(),
+    ]);
+    const current = sessions.find((session) => session.id === principal.sessionId);
+    return jsonOk(
+      {
+        displayName: me.displayName,
+        status: me.status,
+        signIn: { providers: [...new Set(accounts.map((a) => a.providerId).filter((p) => p === "google" || p === "github"))], passkeys: passkeyRows.length },
+        sessions: { active: sessions.length, currentExpiresAt: time(current?.expiresAt) },
+        agents: { count: agents },
+      },
+      meta(ctx),
+    );
   },
 
-  async methods(ctx, s) {
-    const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
+  async agents(ctx, s, _params, principal) {
+    await enforceRateLimit(s.limiter, "read", { kind: "user", id: principal.userProfileId });
+    // Read-only until provisioning ships: only the caller's own profiles, no harness or permission details.
+    const profiles = await new AgentProfileRepository(ctx.env.DB).forUser(principal.userProfileId).list();
+    return jsonOk(profiles.map((p) => ({ id: p.id, name: p.agentName, status: p.status, createdAt: p.createdAt })), meta(ctx));
+  },
+
+  async methods(ctx, s, _params, principal) {
     await enforceRateLimit(s.limiter, "read", { kind: "user", id: principal.userProfileId });
     const accounts = await (await adapterOf(s)).findAccounts(principal.authUserId);
     const providers = [...new Set(accounts.map((a) => a.providerId).filter((p) => p === "google" || p === "github"))];
@@ -158,8 +194,7 @@ const handlers = {
     return jsonOk({ providers, passkeys }, meta(ctx));
   },
 
-  async listSessions(ctx, s) {
-    const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
+  async listSessions(ctx, s, _params, principal) {
     await enforceRateLimit(s.limiter, "read", { kind: "user", id: principal.userProfileId });
     const sessions = await (await adapterOf(s)).listSessions(principal.authUserId, { onlyActiveSessions: true });
     const data = sessions
@@ -175,8 +210,7 @@ const handlers = {
     return jsonOk(data, meta(ctx));
   },
 
-  async revokeSession(ctx, s, params) {
-    const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
+  async revokeSession(ctx, s, params, principal) {
     await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
     const id = opaqueId(params["id"]);
     const adapter = await adapterOf(s);
@@ -201,8 +235,7 @@ const handlers = {
     return current ? withSessionCookiesCleared(s, response) : response;
   },
 
-  async revokeAllSessions(ctx, s) {
-    const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
+  async revokeAllSessions(ctx, s, _params, principal) {
     await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
     // Every session, including the caller's: "sign out everywhere".
     await (await adapterOf(s)).deleteUserSessions(principal.authUserId);
@@ -215,8 +248,7 @@ const handlers = {
     return withSessionCookiesCleared(s, jsonOk({ revoked: true, current: true }, meta(ctx)));
   },
 
-  async listPasskeys(ctx, s) {
-    const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
+  async listPasskeys(ctx, s, _params, principal) {
     await enforceRateLimit(s.limiter, "read", { kind: "user", id: principal.userProfileId });
     const data = (await ownPasskeys(s, principal)).map((p) => ({
       id: p.id,
@@ -228,8 +260,7 @@ const handlers = {
     return jsonOk(data, meta(ctx));
   },
 
-  async renamePasskey(ctx, s, params) {
-    const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
+  async renamePasskey(ctx, s, params, principal) {
     await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
     const id = opaqueId(params["id"]);
     const { name } = await parseJsonBody(ctx.request, RenameBody);
@@ -257,8 +288,7 @@ const handlers = {
     return jsonOk({ id, name }, meta(ctx));
   },
 
-  async removePasskey(ctx, s, params) {
-    const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
+  async removePasskey(ctx, s, params, principal) {
     await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
     const id = opaqueId(params["id"]);
     const existing = await findOwnPasskey(s, principal, id);
@@ -285,8 +315,7 @@ const handlers = {
     return jsonOk({ removed: true }, meta(ctx));
   },
 
-  async activity(ctx, s) {
-    const principal = await s.requirePrincipal(ACCOUNT_STATUSES);
+  async activity(ctx, s, _params, principal) {
     await enforceRateLimit(s.limiter, "read", { kind: "user", id: principal.userProfileId });
     const events = await new AuditRepository(ctx.env.DB).listForUser(principal.userProfileId, 50);
     return jsonOk(
@@ -296,17 +325,36 @@ const handlers = {
   },
 } satisfies Record<string, Handler>;
 
-const ROUTES: ReadonlyArray<{ method: string; pattern: RegExp; handler: Handler }> = [
-  { method: "GET", pattern: /^\/api\/me$/, handler: handlers.me },
-  { method: "GET", pattern: /^\/api\/session$/, handler: handlers.session },
-  { method: "GET", pattern: /^\/api\/security\/methods$/, handler: handlers.methods },
-  { method: "GET", pattern: /^\/api\/security\/sessions$/, handler: handlers.listSessions },
-  { method: "POST", pattern: /^\/api\/security\/sessions\/revoke-all$/, handler: handlers.revokeAllSessions },
-  { method: "DELETE", pattern: /^\/api\/security\/sessions\/(?<id>[^/]+)$/, handler: handlers.revokeSession },
-  { method: "GET", pattern: /^\/api\/security\/passkeys$/, handler: handlers.listPasskeys },
-  { method: "PATCH", pattern: /^\/api\/security\/passkeys\/(?<id>[^/]+)$/, handler: handlers.renamePasskey },
-  { method: "DELETE", pattern: /^\/api\/security\/passkeys\/(?<id>[^/]+)$/, handler: handlers.removePasskey },
-  { method: "GET", pattern: /^\/api\/security\/activity$/, handler: handlers.activity },
+/**
+ * Bootstrap probe: whether the browser is signed in, without a 401 (which
+ * browsers log as an error) when it is not. Same fields as /api/me; a
+ * suspended or disabled account is reported as blocked, with its status.
+ */
+async function sessionProbe(ctx: RequestContext, s: AuthServices): Promise<Response> {
+  const principal = await s.currentPrincipal();
+  if (!principal) return jsonOk({ signedIn: false }, meta(ctx));
+  if (principal.status === "suspended" || principal.status === "disabled") {
+    return jsonOk({ signedIn: false, blocked: true, status: principal.status }, meta(ctx));
+  }
+  return jsonOk({ signedIn: true, me: await loadMe(s, principal) }, meta(ctx));
+}
+
+type ApiAccess = Exclude<Access, "public">;
+
+/** Every account route and the access level it requires. */
+export const ACCOUNT_ROUTES: ReadonlyArray<{ method: string; pattern: RegExp; access: ApiAccess; handler: Handler }> = [
+  { method: "GET", pattern: /^\/api\/me$/, access: "identity", handler: handlers.me },
+  { method: "PATCH", pattern: /^\/api\/me$/, access: "active", handler: handlers.updateMe },
+  { method: "GET", pattern: /^\/api\/account\/overview$/, access: "active", handler: handlers.overview },
+  { method: "GET", pattern: /^\/api\/agents$/, access: "active", handler: handlers.agents },
+  { method: "GET", pattern: /^\/api\/security\/methods$/, access: "active", handler: handlers.methods },
+  { method: "GET", pattern: /^\/api\/security\/sessions$/, access: "active", handler: handlers.listSessions },
+  { method: "POST", pattern: /^\/api\/security\/sessions\/revoke-all$/, access: "active", handler: handlers.revokeAllSessions },
+  { method: "DELETE", pattern: /^\/api\/security\/sessions\/(?<id>[^/]+)$/, access: "active", handler: handlers.revokeSession },
+  { method: "GET", pattern: /^\/api\/security\/passkeys$/, access: "active", handler: handlers.listPasskeys },
+  { method: "PATCH", pattern: /^\/api\/security\/passkeys\/(?<id>[^/]+)$/, access: "active", handler: handlers.renamePasskey },
+  { method: "DELETE", pattern: /^\/api\/security\/passkeys\/(?<id>[^/]+)$/, access: "active", handler: handlers.removePasskey },
+  { method: "GET", pattern: /^\/api\/security\/activity$/, access: "active", handler: handlers.activity },
 ];
 
 /** Public, non-secret sign-in options for the login page. */
@@ -328,12 +376,18 @@ export function publicConfig(ctx: RequestContext): Response {
   );
 }
 
-/** Route /api/me and /api/security/*; null when the path is not ours. */
+/** Route the account API; null when the path is not ours. */
 export async function handleAccountRoute(ctx: RequestContext): Promise<Response | null> {
-  const candidates = ROUTES.filter((route) => route.pattern.test(ctx.url.pathname));
+  if (ctx.url.pathname === "/api/session") {
+    if (ctx.request.method !== "GET") throw new ApiError("METHOD_NOT_ALLOWED", { headers: { allow: "GET" } });
+    return sessionProbe(ctx, createAuthServices(ctx));
+  }
+  const candidates = ACCOUNT_ROUTES.filter((route) => route.pattern.test(ctx.url.pathname));
   if (candidates.length === 0) return null;
   const route = candidates.find((r) => r.method === ctx.request.method);
   if (!route) throw new ApiError("METHOD_NOT_ALLOWED", { headers: { allow: candidates.map((r) => r.method).join(", ") } });
   const params = route.pattern.exec(ctx.url.pathname)?.groups ?? {};
-  return route.handler(ctx, createAuthServices(ctx), params);
+  const services = createAuthServices(ctx);
+  const principal = await services.requirePrincipal(route.access);
+  return route.handler(ctx, services, params, principal);
 }

@@ -81,6 +81,12 @@ describe("24-hour absolute session lifetime", () => {
     expect(me.status).toBe(401);
     expect(((await me.json()) as { error: { code: string } }).error.code).toBe("AUTH_REQUIRED");
     expect(((await (await get("/api/session", jar)).json()) as { data: unknown }).data).toEqual({ signedIn: false });
+    // Every application API behind the pages reports the same clean sign-in requirement.
+    for (const path of ["/api/account/overview", "/api/security/sessions", "/api/agents"]) {
+      const response = await get(path, jar);
+      expect(response.status).toBe(401);
+      expect(await response.text()).not.toMatch(/Better Auth|expired|SESSION/);
+    }
     // Signing in again starts a new 24-hour session.
     const again = new CookieJar();
     await signIn(providers, identity("google"), again);

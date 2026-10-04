@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "npm run build && vite preview",
     "typecheck": "tsc -b",
-    "test": "vitest run --project workers --project static",
+    "test": "vitest run --project workers --project static --project client",
     "cf-typegen": "wrangler types",
     "check": "npm run typecheck && npm test && npm run build && npm run test:build",
     "test:build": "vitest run --project build",

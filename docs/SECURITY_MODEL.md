@@ -40,6 +40,30 @@ Three kinds of actor, never derived from one another
 - Operator services check the actor at runtime (`requireOperator`), so a user
   or system actor passed by mistake is refused before any read or write.
 
+## Access policy (pages and APIs)
+
+One policy, `src/shared/access.ts`, used by both sides:
+
+| Level | Who | Pages | APIs |
+|---|---|---|---|
+| `public` | anyone | `/`, `/login` | `/api/config`, `/api/session`, sign-in endpoints |
+| `identity` | signed in, `active` or `pending` | — | `GET /api/me` |
+| `active` | approved accounts | `/dashboard`, `/agents`, `/security`, `/sessions`, `/settings`, and any unknown path | every other account API |
+
+`decideAccess(level, status)` returns `allow`, `sign-in`, `pending`, or
+`blocked` (suspended/disabled). The server's `requirePrincipal` maps those
+to `AUTH_REQUIRED`, `ACCOUNT_PENDING`, and `ACCOUNT_DISABLED`; the browser's
+route gate (`src/client/components/AccessGate.tsx`) maps them to the login
+redirect, the approval screen, and the blocked screen. The browser gate is a
+convenience: the document for every path is the same generic shell with no
+account data, and every API behind a page enforces the policy itself.
+
+The browser is never the authority for status, permissions, or session
+validity. It renders nothing protected until `/api/session` has answered,
+and any API response showing a lost session (401) or a status change (403)
+moves the whole app to the matching screen. An expired session returns the
+user to `/login?reason=expired` with a safe return path.
+
 ## Request routing
 
 ```text

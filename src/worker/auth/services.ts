@@ -9,6 +9,7 @@ import { betterAuth } from "better-auth";
 import { readSecret } from "../config/secrets";
 import { AuditRecorder, D1AuditSink } from "../db/audit";
 import type { SecurityMetadata } from "../db/json";
+import { decideAccess, type Access } from "../../shared/access";
 import { UserRepository, type UserStatus } from "../db/users";
 import type { RequestContext } from "../http/context";
 import { ApiError } from "../http/errors";
@@ -183,17 +184,18 @@ export function createAuthServices(ctx: RequestContext) {
   }
 
   /**
-   * The authenticated caller, or an error: AUTH_REQUIRED without a valid
-   * session; ACCOUNT_DISABLED for suspended/disabled accounts (whatever the
-   * session says); ACCOUNT_PENDING when the route needs an active account.
+   * The authenticated caller allowed at `access` (src/shared/access.ts, the
+   * same policy the browser's route gate uses), or an error: AUTH_REQUIRED
+   * without a valid session; ACCOUNT_DISABLED for suspended/disabled accounts
+   * (whatever the session says); ACCOUNT_PENDING when the route needs an
+   * active account.
    */
-  async function requirePrincipal(allow: readonly UserStatus[] = ["active"]): Promise<Principal> {
+  async function requirePrincipal(access: Exclude<Access, "public"> = "active"): Promise<Principal> {
     const principal = await currentPrincipal();
-    if (!principal) throw new ApiError("AUTH_REQUIRED");
-    if (principal.status === "suspended" || principal.status === "disabled") {
-      throw new ApiError("ACCOUNT_DISABLED", { logReason: `status ${principal.status}` });
-    }
-    if (!allow.includes(principal.status)) throw new ApiError("ACCOUNT_PENDING");
+    const decision = decideAccess(access, principal?.status ?? null);
+    if (!principal || decision === "sign-in") throw new ApiError("AUTH_REQUIRED");
+    if (decision === "blocked") throw new ApiError("ACCOUNT_DISABLED", { logReason: `status ${principal.status}` });
+    if (decision === "pending") throw new ApiError("ACCOUNT_PENDING");
     return principal;
   }
 

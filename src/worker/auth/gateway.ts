@@ -18,6 +18,7 @@
  * State-changing requests have already passed the router's exact-origin
  * check; Better Auth applies its own origin/CSRF checks as well.
  */
+import { RETURN_PATHS as SHARED_RETURN_PATHS, type ReturnPath } from "../../shared/access";
 import { z } from "../../shared/zod";
 import type { ErrorCode } from "../../shared/errors";
 import type { RequestContext } from "../http/context";
@@ -32,8 +33,8 @@ import { AUTH_BASE_PATH } from "./options";
 import { passkeyAuditFields, type PasskeyIdentity } from "./passkey-audit";
 import { createAuthServices, type AuthServices, type SessionDenial } from "./services";
 
-/** Local pages a sign-in may return to. Anything else is rejected. */
-export const RETURN_PATHS = ["/dashboard", "/agents", "/security", "/settings"] as const;
+/** Local pages a sign-in may return to (from the shared page policy). Anything else is rejected. */
+export const RETURN_PATHS = SHARED_RETURN_PATHS as unknown as readonly [ReturnPath, ...ReturnPath[]];
 export const LOGIN_PATH = "/login";
 
 /** Hosts a sign-in may send the browser to. */
@@ -269,7 +270,8 @@ async function passkeyVerifyAuthentication(ctx: RequestContext, s: AuthServices)
 }
 
 async function passkeyRegisterOptions(ctx: RequestContext, s: AuthServices): Promise<Response> {
-  const principal = await s.requirePrincipal(["active", "pending"]);
+  // Adding a passkey is part of the Security page: an approved account only.
+  const principal = await s.requirePrincipal("active");
   await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
   const query = parse(PasskeyRegisterQuery, Object.fromEntries(ctx.url.searchParams));
   const url = new URL(ctx.url.pathname, ctx.url);
@@ -281,7 +283,7 @@ async function passkeyRegisterOptions(ctx: RequestContext, s: AuthServices): Pro
 }
 
 async function passkeyVerifyRegistration(ctx: RequestContext, s: AuthServices): Promise<Response> {
-  const principal = await s.requirePrincipal(["active", "pending"]);
+  const principal = await s.requirePrincipal("active");
   await enforceRateLimit(s.limiter, "security_write", { kind: "user", id: principal.userProfileId });
   const body = parse(PasskeyRegisterBody, await readJson(ctx.request));
   const upstream = await s.auth.handler(rebuild(ctx.request, ctx.url, body));

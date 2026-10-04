@@ -142,7 +142,14 @@ describe("non-document responses", () => {
     }
   });
 
-  it.each(["/api", "/api/", "/api/nope", "/api/agents", "/api/agent-profiles/agt_x", "/api/index.html", "/api/login"])(
+  it("an existing API route answers unauthenticated HTML requests with JSON, never the shell", async () => {
+    const response = await call("/api/agents", { headers: { accept: "text/html" } });
+    expect(response.status).toBe(401);
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(await response.text()).not.toContain("<");
+  });
+
+  it.each(["/api", "/api/", "/api/nope", "/api/agents/agt_x/provision", "/api/agent-profiles/agt_x", "/api/index.html", "/api/login"])(
     "%s never falls through to the SPA shell, even when asking for HTML",
     async (path) => {
       const response = await call(path, { headers: { accept: "text/html" } });

@@ -74,13 +74,15 @@ describe("first sign-in creates the application identity", () => {
     expect([agents?.n, jobs?.n]).toEqual([0, 0]);
   });
 
-  it("under the approval policy, new accounts are pending and limited to account pages", async () => {
+  it("under the approval policy, new accounts are pending: identity only, no application pages", async () => {
     const approvalEnv = testEnv({ SIGNUP_POLICY: "approval" });
     const jar = new CookieJar();
     await signIn(providers, identity("google"), jar, { env: approvalEnv });
     const response = await get("/api/me", jar, { env: approvalEnv });
     expect(((await response.json()) as { data: { status: string } }).data.status).toBe("pending");
-    expect((await get("/api/security/sessions", jar, { env: approvalEnv })).status).toBe(200);
+    const security = await get("/api/security/sessions", jar, { env: approvalEnv });
+    expect(security.status).toBe(403);
+    expect(((await security.json()) as { error: { code: string } }).error.code).toBe("ACCOUNT_PENDING");
   });
 });
 
@@ -118,7 +120,7 @@ describe("application status is authoritative over the session", () => {
     const profile = await profileFor(who.email);
     await new UserRepository(env.DB).transition(profile?.id ?? "", "suspended");
     const blocked = (await (await get("/api/session", jar)).json()) as { data: unknown };
-    expect(blocked.data).toEqual({ signedIn: false, blocked: true });
+    expect(blocked.data).toEqual({ signedIn: false, blocked: true, status: "suspended" });
   });
 
   it("requests without a session get AUTH_REQUIRED", async () => {

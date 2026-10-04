@@ -32,6 +32,7 @@ export const AUDIT_ACTIONS = [
   "auth.passkey.login.failure",
   "auth.session.revoke",
   "auth.session.revoke_all",
+  "account.profile.update",
   "session.revoke",
   "session.revoke_all",
   "profile.create.request",

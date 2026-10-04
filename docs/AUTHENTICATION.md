@@ -52,19 +52,26 @@ user_profiles (usr_…, status)  ──►  agent ownership, policy, provisionin
 
 ### Principal
 
-Route handlers never parse Better Auth objects; they call
-`requirePrincipal(allowedStatuses)` and get:
+Route handlers never parse Better Auth objects. Each account route declares
+an access level from the shared policy (`src/shared/access.ts`, also used by
+the browser's route gate), and the router calls `requirePrincipal(access)`
+before the handler runs, which returns:
 
 ```ts
 { authUserId, userProfileId, status, sessionId, sessionCreatedAt }
 ```
 
-| Status | Session creation | `/api/session`, `/api/me`, `/api/security/*` | Routes needing an active account |
+| Status | Session creation | `identity` routes (`GET /api/me`) | `active` routes (every other account API, passkey enrolment, all app pages) |
 |---|---|---|---|
 | `active` | allowed | allowed | allowed |
-| `pending` | allowed | allowed (to see status and secure the account) | `403 ACCOUNT_PENDING` |
-| `suspended` | **refused** | `403 ACCOUNT_DISABLED` (`/api/session`: `blocked`) | `403 ACCOUNT_DISABLED` |
-| `disabled` | **refused** | `403 ACCOUNT_DISABLED` | `403 ACCOUNT_DISABLED` |
+| `pending` | allowed | allowed (to learn its status) | `403 ACCOUNT_PENDING` (UI: approval screen) |
+| `suspended` | **refused** | `403 ACCOUNT_DISABLED` | `403 ACCOUNT_DISABLED` (UI: blocked screen) |
+| `disabled` | **refused** | `403 ACCOUNT_DISABLED` | `403 ACCOUNT_DISABLED` (UI: blocked screen) |
+
+`GET /api/session` never errors: `{signedIn:false}`,
+`{signedIn:false, blocked:true, status}`, or `{signedIn:true, me}`.
+Since Phase 5, a pending account can no longer use `/api/security/*` or add
+passkeys: everything except learning its own status waits for approval.
 
 The application status is checked on **every** request, so a valid Better
 Auth session never overrides suspension; deleting sessions is not required
@@ -109,7 +116,11 @@ never reaches the browser.
 |---|---|
 | `GET /api/config` | public: `{signInAvailable, providers, passkeys, turnstileSiteKey}` |
 | `GET /api/session` | always 200: `{signedIn:false}`, `{signedIn:false, blocked:true}`, or `{signedIn:true, me}` |
-| `GET /api/me` | `{id, displayName, status}`; 401 without a session |
+| `GET /api/me` | `{id, displayName, status}`; 401 without a session (identity) |
+| `PATCH /api/me` | `{displayName}` (1–80 chars, no control characters); audited as `account.profile.update` without the value (active) |
+| `GET /api/account/overview` | dashboard: `{displayName, status, signIn:{providers, passkeys}, sessions:{active, currentExpiresAt}, agents:{count}}` (active) |
+| `GET /api/agents` | the caller's agent profiles `{id, name, status, createdAt}`, read-only; no harness or permission data (active) |
+| `GET /api/security/*` (all below) | **active** accounts only |
 | `GET /api/security/methods` | connected providers and passkey count |
 | `GET /api/security/sessions` | the caller's sessions: `{id, device, createdAt, lastActiveAt, expiresAt, current}`; **no tokens, no IPs** |
 | `DELETE /api/security/sessions/:id` | revoke one of the caller's sessions (others survive); revoking the current one also expires this browser's cookies |

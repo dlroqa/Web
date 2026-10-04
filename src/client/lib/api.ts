@@ -3,7 +3,28 @@
  * browser sends automatically; nothing here stores or reads credentials.
  * UI behaviour branches on `code`, never on message text.
  */
+import type { AccountStatus } from "../../shared/access";
 import type { ErrorCode } from "../../shared/errors";
+
+/**
+ * Why a request showed that the session no longer holds: it expired or was
+ * revoked (401), or the account's status changed (403). The session provider
+ * subscribes and moves the whole app to the right state; pages don't.
+ */
+export type SessionSignal = "expired" | "status-changed";
+const signalListeners = new Set<(signal: SessionSignal) => void>();
+
+export function onSessionSignal(listener: (signal: SessionSignal) => void): () => void {
+  signalListeners.add(listener);
+  return () => signalListeners.delete(listener);
+}
+
+function emit(signal: SessionSignal): void {
+  for (const listener of signalListeners) listener(signal);
+}
+
+/** The session probe answers "am I signed in?" itself; it never signals. */
+const PROBE_PATHS = new Set(["/api/session", "/api/config"]);
 
 export class ApiRequestError extends Error {
   constructor(
@@ -42,7 +63,12 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     throw new ApiRequestError("INTERNAL_ERROR", "Something went wrong.", response.status, null);
   }
   if (!response.ok || !envelope.ok) {
-    throw new ApiRequestError(envelope.error?.code ?? "INTERNAL_ERROR", envelope.error?.message ?? "Something went wrong.", response.status, envelope.requestId ?? null);
+    const code = envelope.error?.code ?? "INTERNAL_ERROR";
+    if (!PROBE_PATHS.has(path)) {
+      if (code === "AUTH_REQUIRED") emit("expired");
+      else if (code === "ACCOUNT_DISABLED" || code === "ACCOUNT_PENDING") emit("status-changed");
+    }
+    throw new ApiRequestError(code, envelope.error?.message ?? "Something went wrong.", response.status, envelope.requestId ?? null);
   }
   return envelope.data as T;
 }
@@ -50,7 +76,22 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
 export interface Me {
   id: string;
   displayName: string | null;
-  status: "active" | "pending" | "suspended" | "disabled";
+  status: AccountStatus;
+}
+
+export interface Overview {
+  displayName: string | null;
+  status: AccountStatus;
+  signIn: { providers: Array<"google" | "github">; passkeys: number };
+  sessions: { active: number; currentExpiresAt: number | null };
+  agents: { count: number };
+}
+
+export interface AgentSummary {
+  id: string;
+  name: string;
+  status: string;
+  createdAt: number;
 }
 
 export interface PublicConfig {

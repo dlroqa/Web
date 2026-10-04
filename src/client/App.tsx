@@ -1,53 +1,64 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
+import { BlockedScreen, gate, LoadingScreen, PendingScreen, UnavailableScreen } from "./components/AccessGate";
 import { Shell } from "./components/Shell";
-import { Alert } from "./components/ui";
-import { RouterProvider, useRouter, RETURN_PATHS } from "./lib/router";
+import { RouterProvider, useRouter } from "./lib/router";
 import { SessionProvider, useSession } from "./lib/session";
-import { ComingSoon, Dashboard } from "./pages/Dashboard";
+import { Agents } from "./pages/Agents";
+import { Dashboard } from "./pages/Dashboard";
 import { Login } from "./pages/Login";
+import { NotFound } from "./pages/NotFound";
 import { Security } from "./pages/Security";
+import { Sessions } from "./pages/Sessions";
+import { Settings } from "./pages/Settings";
 
-function Routes() {
+/** Application pages (all `active` in src/shared/access.ts). */
+export function pageFor(path: string): ReactNode {
+  switch (path) {
+    case "/dashboard":
+      return <Dashboard />;
+    case "/agents":
+      return <Agents />;
+    case "/security":
+      return <Security />;
+    case "/sessions":
+      return <Sessions />;
+    case "/settings":
+      return <Settings />;
+    default:
+      return <NotFound />;
+  }
+}
+
+export function AppRoutes() {
   const { path, navigate } = useRouter();
-  const { session } = useSession();
-  const isPublic = path === "/login" || path === "/register";
+  const { session, refresh } = useSession();
+  const result = gate(path, session);
 
   useEffect(() => {
-    if (path === "/" || path === "/register") {
-      navigate(session.state === "signed-in" ? "/dashboard" : "/login", { replace: true });
-    } else if (!isPublic && (session.state === "signed-out" || session.state === "blocked")) {
-      const returnTo = (RETURN_PATHS as readonly string[]).includes(path) ? `?returnTo=${path}` : "";
-      navigate(`/login${returnTo}`, { replace: true });
-    }
-  }, [path, session, navigate, isPublic]);
+    if (result.kind === "redirect") navigate(result.to, { replace: true });
+  }, [result.kind, result.kind === "redirect" ? result.to : null, navigate]);
 
   if (path === "/login") return <Login />;
-  if (session.state === "loading") return <div className="loading" aria-busy="true" aria-label="Loading" />;
-  if (session.state === "error") {
-    return (
-      <div className="auth-page">
-        <main className="auth-card" id="main">
-          <Alert tone="error">{session.message}</Alert>
-        </main>
-      </div>
-    );
+  switch (result.kind) {
+    case "loading":
+    case "redirect":
+      return <LoadingScreen />;
+    case "unavailable":
+      return <UnavailableScreen message={result.message} onRetry={() => void refresh()} />;
+    case "pending":
+      return <PendingScreen />;
+    case "blocked":
+      return <BlockedScreen status={result.status} />;
+    case "page":
+      return <Shell>{pageFor(path)}</Shell>;
   }
-  if (session.state !== "signed-in") return null;
-
-  let page;
-  if (path === "/dashboard") page = <Dashboard me={session.me} />;
-  else if (path === "/security" || path === "/sessions") page = <Security />;
-  else if (path === "/agents" || path.startsWith("/agents/")) page = <ComingSoon title="Agents" text="Creating and managing agents arrives in a later release." />;
-  else if (path === "/settings") page = <ComingSoon title="Settings" text="Account settings arrive in a later release." />;
-  else page = <ComingSoon title="Page not found" text="This page doesn't exist." />;
-  return <Shell>{page}</Shell>;
 }
 
 export function App() {
   return (
     <RouterProvider>
       <SessionProvider>
-        <Routes />
+        <AppRoutes />
       </SessionProvider>
     </RouterProvider>
   );

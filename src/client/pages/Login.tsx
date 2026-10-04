@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiRequestError, type PublicConfig } from "../lib/api";
 import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from "../lib/passkeys";
-import { safeReturnPath, useRouter } from "../lib/router";
+import { safeReturnPath, usePageTitle, useRouter } from "../lib/router";
 import { useSession } from "../lib/session";
 import { loadTurnstile } from "../lib/turnstile";
 import { Alert } from "../components/ui";
@@ -16,20 +16,29 @@ const CALLBACK_ERRORS: Record<string, string> = {
   state_mismatch: "Your sign-in session expired. Please try again.",
 };
 
+/** Why the user is here, from ?reason= (only these values are honored). */
+const REASON_MESSAGES: Record<string, string> = {
+  expired: "Your session expired. Please sign in again.",
+  "signed-out": "You've been signed out.",
+};
+
 function subtitle(providers: Array<"google" | "github">): string {
   const names = providers.map((p) => (p === "google" ? "Google" : "GitHub"));
   return names.length === 0 ? "Use your passkey to sign in." : `Use a passkey, or continue with your ${names.join(" or ")} account.`;
 }
 
 export function Login() {
+  usePageTitle("Sign in");
   const { search, navigate } = useRouter();
   const { session, refresh } = useSession();
   const returnTo = safeReturnPath(search.get("returnTo"));
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [message, setMessage] = useState<{ tone: "error" | "info"; text: string } | null>(() => {
     const code = search.get("error");
-    if (!code) return null;
-    return { tone: "error", text: CALLBACK_ERRORS[code] ?? "Sign-in didn't complete. Please try again." };
+    if (code) return { tone: "error", text: CALLBACK_ERRORS[code] ?? "Sign-in didn't complete. Please try again." };
+    const reason = search.get("reason");
+    if (reason && Object.hasOwn(REASON_MESSAGES, reason)) return { tone: "info", text: REASON_MESSAGES[reason] ?? "" };
+    return null;
   });
   const [busy, setBusy] = useState<"passkey" | "google" | "github" | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);

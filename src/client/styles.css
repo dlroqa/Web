@@ -151,7 +151,19 @@ a { color: inherit; }
 .account-name { color: var(--text-muted); font-size: 0.875rem; max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .main { max-width: 880px; margin: 0 auto; padding: var(--space-6) var(--space-4) var(--space-7); }
 .main:focus { outline: none; }
-.loading { min-height: 100dvh; }
+.loading { min-height: 100dvh; display: grid; place-items: center; }
+.loading::after {
+  content: ""; width: 28px; height: 28px; border-radius: 50%;
+  border: 3px solid var(--border); border-top-color: var(--primary);
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.center { text-align: center; }
+.stack { display: grid; gap: var(--space-3); }
 
 .page { display: grid; gap: var(--space-5); }
 .page-header { display: grid; gap: var(--space-1); }
@@ -166,7 +178,24 @@ a { color: inherit; }
 .list-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--border); flex-wrap: wrap; }
 .list-row:first-child { border-top: 0; }
 .row-title { font-weight: 550; }
-.row-actions { display: flex; gap: var(--space-2); }
+.row-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* Facts (label → value) */
+.facts { display: grid; gap: var(--space-3); margin: 0; }
+.facts > div { display: grid; gap: 2px; }
+.facts dt { color: var(--text-muted); font-size: 0.875rem; }
+.facts dd { margin: 0; font-weight: 550; overflow-wrap: anywhere; }
+
+/* Forms */
+.form { display: grid; gap: var(--space-4); }
+.field { display: grid; gap: var(--space-2); max-width: 420px; }
+.field label { font-weight: 550; font-size: 0.875rem; }
+.field input {
+  min-height: 44px; padding: 0 var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text); font: inherit;
+}
+.field input[aria-invalid="true"] { border-color: var(--danger); }
+.field-error { color: var(--danger); font-size: 0.875rem; font-weight: 550; }
 
 .inline-form { display: grid; gap: var(--space-2); }
 .inline-form label { font-weight: 550; font-size: 0.875rem; }
@@ -184,4 +213,5 @@ a { color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+  .loading::after { animation: none; }
 }

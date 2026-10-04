@@ -1,5 +1,6 @@
 /** A minimal history router: enough for a handful of pages, no dependency. */
 import { createContext, useCallback, useContext, useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { isReturnPath, RETURN_PATHS, type ReturnPath } from "../../shared/access";
 
 interface RouterValue {
   path: string;
@@ -7,14 +8,25 @@ interface RouterValue {
   navigate: (to: string, options?: { replace?: boolean }) => void;
 }
 
-const RouterContext = createContext<RouterValue | null>(null);
+export const RouterContext = createContext<RouterValue | null>(null);
 
-/** Pages a sign-in may return to (mirrors the server's allowlist). */
-export const RETURN_PATHS = ["/dashboard", "/agents", "/security", "/settings"] as const;
-export type ReturnPath = (typeof RETURN_PATHS)[number];
+export { RETURN_PATHS, type ReturnPath };
 
+/** A sign-in return path from untrusted input: an allowlisted page, else the dashboard. */
 export function safeReturnPath(value: string | null): ReturnPath {
-  return (RETURN_PATHS as readonly string[]).includes(value ?? "") ? (value as ReturnPath) : "/dashboard";
+  return isReturnPath(value) ? value : "/dashboard";
+}
+
+/** A fixed location (server rendering in tests); navigation is ignored. */
+export function StaticRouterProvider({ path, search = "", children }: { path: string; search?: string; children: ReactNode }) {
+  return <RouterContext.Provider value={{ path, search: new URLSearchParams(search), navigate: () => undefined }}>{children}</RouterContext.Provider>;
+}
+
+/** Set the document title for the current page ("Security · Lightagent"). */
+export function usePageTitle(title: string): void {
+  useEffect(() => {
+    document.title = `${title} · Lightagent`;
+  }, [title]);
 }
 
 export function RouterProvider({ children }: { children: ReactNode }) {
