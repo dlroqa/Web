@@ -217,3 +217,46 @@ plus a deep refresh: **0 CSP violations**.
 
 Pending (needs OAuth credentials): Google/GitHub sign-in, passkey enrolment
 and sign-in, session revocation, and suspended-user checks in a real browser.
+
+### 2026-10-04: Phase 4 validation with real OAuth providers
+
+Secrets added to **staging only**: `GOOGLE_CLIENT_ID/SECRET` and
+`GITHUB_CLIENT_ID/SECRET` (staging-only Google client and GitHub OAuth app,
+callback URLs as in [AUTHENTICATION.md](AUTHENTICATION.md#callback-urls-register-exactly-these)).
+Deployed version unchanged (`c801ff2f`, commit `65caa14`).
+
+Method: a real Chromium on the operator's desktop with a throwaway profile
+(deleted afterwards). The person signed in to Google/GitHub interactively; a
+CDP monitor recorded console output, CSP violations, provider authorize URLs
+(with `state`, `code`, and `code_challenge` redacted), and `Set-Cookie`
+attributes (never values), and compared every `/api` JSON body against the
+live session token without printing it. `wrangler tail` output was stored
+with query strings and headers removed. Passkeys used Chromium's DevTools
+virtual authenticator, so Better Auth's real WebAuthn verification ran
+against the staging RP id. D1 was inspected with read-only queries.
+
+| Check | Result |
+|---|---|
+| Google sign-in | authorize URL scopes exactly `openid email profile`, `prompt=select_account`, PKCE S256; consent showed name, email, picture only; `user` + `account` + `user_profiles` (`pending`) created |
+| Pending account | valid session; `/api/me` reports `pending`; dashboard shows the approval notice; agent routes 404 (none exist yet) |
+| Activation, then Google sign-in | dashboard without notice; same `usr_…` |
+| GitHub sign-in (second account) | scopes exactly `read:user user:email`, PKCE S256; new identity `pending` |
+| Same verified email via GitHub as an existing Google user | refused 4/4 with `account_not_linked`; no account attached, no user created |
+| Provider tokens in D1 | `accessToken`, `refreshToken`, `idToken` NULL on both accounts |
+| Recent auth | passkey registration on a > 10 min session → `403 REAUTH_REQUIRED` |
+| Passkey add / remove / sign-in | Better Auth verification; counter advanced; same `usr_…` resolved; no new user |
+| Sessions | listed without tokens; revoke one → that browser 401, other kept; sign out everywhere → 0 sessions (current included) |
+| Cross-user | another user's session or passkey id → 404 (delete, rename) |
+| Suspension | still-valid session → `403 ACCOUNT_DISABLED` everywhere, `/api/session` `blocked`; fresh Google and passkey sign-in refused, no session created |
+| Cookies (observed) | session `HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=604800`, host-only; OAuth state and passkey challenge `HttpOnly; Secure; SameSite=Lax; Path=/api; Max-Age=300`; no `SameSite=None`; nothing in localStorage, sessionStorage, or `document.cookie` |
+| Session token in browser-readable JSON | 0 matches across every `/api` response |
+| Worker logs and audit rows | no codes, tokens, cookies, WebAuthn data, secrets, or emails (32 patterns scanned) |
+| CSP | 0 violations, 0 page errors in both browsers; no CSP change needed (redirects need none) |
+| Production | no Worker, no secrets, no migrations applied |
+
+Issues found (fixed in Phase 4.5): a suspended account's passkey sign-in
+returned `500 INTERNAL_ERROR` instead of `403 ACCOUNT_DISABLED`; sign out
+everywhere left the (now invalid) session cookie in the browser.
+
+Staging test identities created: one Google user (now `active`) and one
+GitHub user (kept `pending`); see [OPERATIONS.md](OPERATIONS.md#staging-test-accounts).
