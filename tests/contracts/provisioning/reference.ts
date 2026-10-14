@@ -1,0 +1,1046 @@
+/**
+ * LA-WEB-PROVISIONING/1 reference codec. TEST-ONLY: nothing in src/ imports
+ * this, and no Worker route, binding, or secret uses it.
+ *
+ * The normative text is docs/PROVISIONING_PROTOCOL.md. This module exists so
+ * the shared fixtures in protocol/la-web-provisioning-1/ are generated and
+ * checked by code that follows the specification step by step. It uses only
+ * Web-standard APIs (TextEncoder/TextDecoder, crypto.subtle), so it runs
+ * unchanged in workerd (tests) and Node (fixture generator).
+ *
+ * Section numbers in comments (§n) refer to the specification.
+ */
+
+export const PROTOCOL = "LA-WEB-PROVISIONING/1";
+export const COMMAND_PURPOSE = "provisioning-command";
+export const OPERATIONS = ["profile.create", "profile.status", "profile.revoke"] as const;
+export type Operation = (typeof OPERATIONS)[number];
+
+export const MAX_MESSAGE_BYTES = 8192;
+export const MAX_NESTING_DEPTH = 16;
+export const MAX_COMMAND_LIFETIME_SECONDS = 120;
+export const MAX_CLOCK_SKEW_SECONDS = 30;
+/** A delayed copy of a command can be accepted until expiresAt + this (Web clock), §9.3. */
+export const ACCEPTANCE_HORIZON_SECONDS = 2 * MAX_CLOCK_SKEW_SECONDS;
+export const TEMPLATE = "assistant";
+
+const encoder = new TextEncoder();
+
+// ---------------------------------------------------------------------------
+// §4.2 Strict JSON parsing
+// ---------------------------------------------------------------------------
+
+export type JsonValue =
+  | { kind: "object"; members: Array<[string, JsonValue]> }
+  | { kind: "array"; items: JsonValue[] }
+  | { kind: "string"; value: string }
+  | { kind: "number"; lexeme: string }
+  | { kind: "true" }
+  | { kind: "false" }
+  | { kind: "null" };
+
+export type ParseResult = { ok: true; value: JsonValue } | { ok: false; code: "MALFORMED_JSON" | "DUPLICATE_KEY" };
+
+class Malformed extends Error {}
+
+/**
+ * RFC 8259 parser that keeps number lexemes, rejects invalid UTF-8, a BOM,
+ * lone surrogate escapes, and nesting deeper than MAX_NESTING_DEPTH, and
+ * reports duplicate member names (compared after unescaping) only once the
+ * whole text is known to be well-formed, so MALFORMED_JSON always wins.
+ */
+export function parseStrictJson(bytes: Uint8Array): ParseResult {
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return { ok: false, code: "MALFORMED_JSON" };
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return { ok: false, code: "MALFORMED_JSON" };
+  }
+  let pos = 0;
+  let duplicate = false;
+
+  const ws = () => {
+    while (pos < text.length) {
+      const c = text.charCodeAt(pos);
+      if (c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d) pos += 1;
+      else break;
+    }
+  };
+  const expect = (literal: string) => {
+    if (text.slice(pos, pos + literal.length) !== literal) throw new Malformed();
+    pos += literal.length;
+  };
+  const hex4 = (): number => {
+    const digits = text.slice(pos, pos + 4);
+    if (!/^[0-9A-Fa-f]{4}$/.test(digits)) throw new Malformed();
+    pos += 4;
+    return Number.parseInt(digits, 16);
+  };
+  const string = (): string => {
+    expect('"');
+    let out = "";
+    for (;;) {
+      if (pos >= text.length) throw new Malformed();
+      const c = text.charCodeAt(pos);
+      if (c === 0x22) {
+        pos += 1;
+        return out;
+      }
+      if (c < 0x20) throw new Malformed();
+      if (c !== 0x5c) {
+        out += text[pos];
+        pos += 1;
+        continue;
+      }
+      pos += 1;
+      const e = text[pos];
+      pos += 1;
+      switch (e) {
+        case '"': out += '"'; break;
+        case "\\": out += "\\"; break;
+        case "/": out += "/"; break;
+        case "b": out += "\b"; break;
+        case "f": out += "\f"; break;
+        case "n": out += "\n"; break;
+        case "r": out += "\r"; break;
+        case "t": out += "\t"; break;
+        case "u": {
+          const unit = hex4();
+          if (unit >= 0xdc00 && unit <= 0xdfff) throw new Malformed();
+          if (unit >= 0xd800 && unit <= 0xdbff) {
+            expect("\\u");
+            const low = hex4();
+            if (low < 0xdc00 || low > 0xdfff) throw new Malformed();
+            out += String.fromCharCode(unit, low);
+          } else {
+            out += String.fromCharCode(unit);
+          }
+          break;
+        }
+        default:
+          throw new Malformed();
+      }
+    }
+  };
+  const number = (): string => {
+    const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(text.slice(pos));
+    if (!match) throw new Malformed();
+    pos += match[0].length;
+    return match[0];
+  };
+  const value = (depth: number): JsonValue => {
+    ws();
+    const c = text[pos];
+    if (c === "{") {
+      if (depth + 1 > MAX_NESTING_DEPTH) throw new Malformed();
+      pos += 1;
+      const members: Array<[string, JsonValue]> = [];
+      const seen = new Set<string>();
+      ws();
+      if (text[pos] === "}") {
+        pos += 1;
+        return { kind: "object", members };
+      }
+      for (;;) {
+        ws();
+        const key = string();
+        if (seen.has(key)) duplicate = true;
+        seen.add(key);
+        ws();
+        expect(":");
+        members.push([key, value(depth + 1)]);
+        ws();
+        if (text[pos] === ",") {
+          pos += 1;
+          continue;
+        }
+        expect("}");
+        return { kind: "object", members };
+      }
+    }
+    if (c === "[") {
+      if (depth + 1 > MAX_NESTING_DEPTH) throw new Malformed();
+      pos += 1;
+      const items: JsonValue[] = [];
+      ws();
+      if (text[pos] === "]") {
+        pos += 1;
+        return { kind: "array", items };
+      }
+      for (;;) {
+        items.push(value(depth + 1));
+        ws();
+        if (text[pos] === ",") {
+          pos += 1;
+          continue;
+        }
+        expect("]");
+        return { kind: "array", items };
+      }
+    }
+    if (c === '"') return { kind: "string", value: string() };
+    for (const literal of ["true", "false", "null"] as const) {
+      if (text.startsWith(literal, pos)) {
+        pos += literal.length;
+        return { kind: literal };
+      }
+    }
+    return { kind: "number", lexeme: number() };
+  };
+
+  try {
+    const root = value(0);
+    ws();
+    if (pos !== text.length) throw new Malformed();
+    return duplicate ? { ok: false, code: "DUPLICATE_KEY" } : { ok: true, value: root };
+  } catch (error) {
+    if (error instanceof Malformed) return { ok: false, code: "MALFORMED_JSON" };
+    throw error;
+  }
+}
+
+const CANONICAL_INTEGER = /^(?:0|[1-9][0-9]*)$/;
+
+/** §4.3: only objects, strings, and non-negative safe integers. */
+export function isCommandValueProfile(value: JsonValue): boolean {
+  switch (value.kind) {
+    case "object":
+      return value.members.every(([, member]) => isCommandValueProfile(member));
+    case "string":
+      return true;
+    case "number":
+      return CANONICAL_INTEGER.test(value.lexeme) && BigInt(value.lexeme) <= BigInt(Number.MAX_SAFE_INTEGER);
+    default:
+      return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// §5 Canonical bytes: RFC 8785 (JCS)
+// ---------------------------------------------------------------------------
+
+/** JCS string escaping (RFC 8785 §3.2.2.2). */
+function jcsString(value: string): string {
+  let out = '"';
+  for (const ch of value) {
+    const cp = ch.codePointAt(0) as number;
+    if (ch === '"') out += '\\"';
+    else if (ch === "\\") out += "\\\\";
+    else if (cp === 0x08) out += "\\b";
+    else if (cp === 0x09) out += "\\t";
+    else if (cp === 0x0a) out += "\\n";
+    else if (cp === 0x0c) out += "\\f";
+    else if (cp === 0x0d) out += "\\r";
+    else if (cp < 0x20) out += `\\u${cp.toString(16).padStart(4, "0")}`;
+    else out += ch;
+  }
+  return `${out}"`;
+}
+
+/** UTF-16 code-unit order, as RFC 8785 §3.2.3 requires. */
+function compareUtf16(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** JCS serialization of a parsed value (numbers via ECMAScript Number → string, RFC 8785 §3.2.2.3). */
+export function canonicalizeParsed(value: JsonValue): string {
+  switch (value.kind) {
+    case "object":
+      return `{${[...value.members]
+        .sort(([a], [b]) => compareUtf16(a, b))
+        .map(([key, member]) => `${jcsString(key)}:${canonicalizeParsed(member)}`)
+        .join(",")}}`;
+    case "array":
+      return `[${value.items.map(canonicalizeParsed).join(",")}]`;
+    case "string":
+      return jcsString(value.value);
+    case "number":
+      return String(Number(value.lexeme));
+    default:
+      return value.kind;
+  }
+}
+
+/** Values a command may contain (§4.3). */
+export type CanonicalValue = string | number | { readonly [key: string]: CanonicalValue };
+
+/** JCS serialization of a command value built in code. Throws outside the §4.3 subset. */
+export function canonicalize(value: CanonicalValue): string {
+  if (typeof value === "string") return jcsString(value);
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || value < 0) throw new TypeError("only non-negative safe integers");
+    return String(value);
+  }
+  return `{${Object.keys(value)
+    .sort(compareUtf16)
+    .map((key) => `${jcsString(key)}:${canonicalize(value[key] as CanonicalValue)}`)
+    .join(",")}}`;
+}
+
+export function utf8(value: string): Uint8Array {
+  return encoder.encode(value);
+}
+
+export function concatBytes(...parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+/** §6.1 domain-separation prefix: "LA-WEB-PROVISIONING/1" NUL "provisioning-command" NUL. */
+export const SIGNING_CONTEXT = utf8(`${PROTOCOL}\u0000${COMMAND_PURPOSE}\u0000`);
+
+/** §6.1 The exact bytes Ed25519 signs: context ‖ JCS(envelope without `signature`). */
+export function signingInput(unsigned: Readonly<Record<string, CanonicalValue>>, context: Uint8Array = SIGNING_CONTEXT): Uint8Array {
+  if ("signature" in unsigned) throw new TypeError("signing input excludes the signature member");
+  return concatBytes(context, utf8(canonicalize(unsigned)));
+}
+
+// ---------------------------------------------------------------------------
+// Encodings (§4.5)
+// ---------------------------------------------------------------------------
+
+export function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export function fromHex(hex: string): Uint8Array {
+  if (!/^(?:[0-9a-f]{2})*$/.test(hex)) throw new TypeError("lowercase hex expected");
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i += 1) out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+/** RFC 4648 §5 base64url without padding. */
+export function toBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Strict base64url (no padding, canonical trailing bits); null when invalid. */
+export function fromBase64Url(value: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) return null;
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (value.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  return toBase64Url(bytes) === value ? bytes : null;
+}
+
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+}
+
+// ---------------------------------------------------------------------------
+// Field rules (§7, §8)
+// ---------------------------------------------------------------------------
+
+const idPattern = (prefix: string) => new RegExp(`^${prefix}_[a-z0-9]{8,60}$`);
+
+export const PATTERNS = {
+  commandId: idPattern("cmd"),
+  jobId: idPattern("prv"),
+  requestId: idPattern("req"),
+  harnessId: idPattern("hns"),
+  profileId: idPattern("agt"),
+  subject: idPattern("usr"),
+  keyId: /^[a-z0-9][a-z0-9._-]{2,63}$/,
+  nonce: /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/,
+  signature: /^[A-Za-z0-9_-]{85}[AQgw]$/,
+  operationId: /^[0-9a-f]{32}$/,
+  idempotencyKey: /^[A-Za-z0-9_-]{16,128}$/,
+  issuer: /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*(?::([1-9][0-9]{0,4}))?$/,
+  principalId: /^[a-z0-9][a-z0-9_-]{0,63}$/,
+} as const;
+
+/** 10-digit Unix seconds (rejects milliseconds and implausible values). */
+export const MIN_TIMESTAMP = 1_000_000_000;
+export const MAX_TIMESTAMP = 9_999_999_999;
+
+export function isValidIssuer(value: string): boolean {
+  if (value.length > 256) return false;
+  const match = PATTERNS.issuer.exec(value);
+  return match !== null && (match[1] === undefined || Number(match[1]) <= 65535);
+}
+
+/** Unicode White_Space (PropList.txt), which Rust's str::trim uses. Not JS String.prototype.trim. */
+const WHITE_SPACE = new Set([
+  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0x85, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006,
+  0x2007, 0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000,
+]);
+/** General category Cc, which Rust's char::is_control tests. */
+const isControl = (cp: number) => cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f);
+
+/** §8.1 displayName: NFC, 1–64 Unicode scalar values, no Cc, no leading/trailing White_Space. */
+export function isValidDisplayName(value: string): boolean {
+  const scalars = Array.from(value, (ch) => ch.codePointAt(0) as number);
+  if (scalars.length < 1 || scalars.length > 64) return false;
+  if (scalars.some((cp) => isControl(cp) || (cp >= 0xd800 && cp <= 0xdfff))) return false;
+  if (WHITE_SPACE.has(scalars[0] as number) || WHITE_SPACE.has(scalars[scalars.length - 1] as number)) return false;
+  return value.normalize("NFC") === value;
+}
+
+// ---------------------------------------------------------------------------
+// §7 Command schema
+// ---------------------------------------------------------------------------
+
+export interface CreatePayload {
+  displayName: string;
+  idempotencyKey: string;
+  issuer: string;
+  profileId: string;
+  subject: string;
+  template: string;
+}
+
+export interface OperationPayload {
+  operationId: string;
+  profileId: string;
+}
+
+export interface Command {
+  audience: string;
+  commandId: string;
+  expiresAt: number;
+  issuedAt: number;
+  jobId: string;
+  keyId: string;
+  nonce: string;
+  operation: Operation;
+  payload: CreatePayload | OperationPayload;
+  protocol: string;
+  purpose: string;
+  requestId: string;
+  signature: string;
+}
+
+export const ENVELOPE_FIELDS = [
+  "audience", "commandId", "expiresAt", "issuedAt", "jobId", "keyId", "nonce", "operation", "payload", "protocol",
+  "purpose", "requestId", "signature",
+] as const;
+
+export const PAYLOAD_FIELDS: Readonly<Record<Operation, readonly string[]>> = {
+  "profile.create": ["displayName", "idempotencyKey", "issuer", "profileId", "subject", "template"],
+  "profile.status": ["operationId", "profileId"],
+  "profile.revoke": ["operationId", "profileId"],
+};
+
+type Rule = { code: string; ok: (value: JsonValue) => boolean };
+
+const str = (test: (s: string) => boolean) => (value: JsonValue) => value.kind === "string" && test(value.value);
+const re = (pattern: RegExp) => str((s) => pattern.test(s));
+const timestamp = (value: JsonValue) => {
+  if (value.kind !== "number") return false;
+  const n = Number(value.lexeme);
+  return n >= MIN_TIMESTAMP && n <= MAX_TIMESTAMP;
+};
+
+/** Envelope member checks after purpose and operation, in JCS key order (§10 step 7). */
+const ENVELOPE_RULES: ReadonlyArray<[string, Rule]> = [
+  ["audience", { code: "INVALID_FIELD", ok: re(PATTERNS.harnessId) }],
+  ["commandId", { code: "INVALID_FIELD", ok: re(PATTERNS.commandId) }],
+  ["expiresAt", { code: "INVALID_FIELD", ok: timestamp }],
+  ["issuedAt", { code: "INVALID_FIELD", ok: timestamp }],
+  ["jobId", { code: "INVALID_FIELD", ok: re(PATTERNS.jobId) }],
+  ["keyId", { code: "INVALID_FIELD", ok: re(PATTERNS.keyId) }],
+  ["nonce", { code: "INVALID_FIELD", ok: re(PATTERNS.nonce) }],
+  ["payload", { code: "INVALID_FIELD", ok: (v) => v.kind === "object" }],
+  ["requestId", { code: "INVALID_FIELD", ok: re(PATTERNS.requestId) }],
+  ["signature", { code: "INVALID_FIELD", ok: re(PATTERNS.signature) }],
+];
+
+const PAYLOAD_RULES: Readonly<Record<string, Rule>> = {
+  displayName: { code: "INVALID_DISPLAY_NAME", ok: str(isValidDisplayName) },
+  idempotencyKey: { code: "INVALID_IDEMPOTENCY_KEY", ok: re(PATTERNS.idempotencyKey) },
+  issuer: { code: "INVALID_ISSUER", ok: str(isValidIssuer) },
+  operationId: { code: "INVALID_OPERATION_ID", ok: re(PATTERNS.operationId) },
+  profileId: { code: "INVALID_PROFILE_ID", ok: re(PATTERNS.profileId) },
+  subject: { code: "INVALID_SUBJECT", ok: re(PATTERNS.subject) },
+  template: { code: "INVALID_TEMPLATE", ok: str((s) => s === TEMPLATE) },
+};
+
+function closedShape(value: JsonValue & { kind: "object" }, fields: readonly string[]): string | null {
+  const names = value.members.map(([key]) => key);
+  if (names.some((name) => !fields.includes(name))) return "UNKNOWN_FIELD";
+  if (fields.some((field) => !names.includes(field))) return "MISSING_FIELD";
+  return null;
+}
+
+function member(value: JsonValue & { kind: "object" }, name: string): JsonValue {
+  const found = value.members.find(([key]) => key === name);
+  if (!found) throw new Error(`missing ${name}`);
+  return found[1];
+}
+
+function plain(value: JsonValue): CanonicalValue {
+  switch (value.kind) {
+    case "object":
+      return Object.fromEntries(value.members.map(([key, m]) => [key, plain(m)]));
+    case "string":
+      return value.value;
+    case "number":
+      return Number(value.lexeme);
+    default:
+      throw new TypeError("outside the command value profile");
+  }
+}
+
+/** §10 steps 4–8 on a parsed, profile-checked document. */
+export function checkCommandSchema(root: JsonValue): { ok: true; command: Command } | { ok: false; code: string } {
+  if (root.kind !== "object") return { ok: false, code: "INVALID_ENVELOPE" };
+  const protocol = root.members.find(([key]) => key === "protocol")?.[1];
+  if (protocol?.kind !== "string") return { ok: false, code: "INVALID_ENVELOPE" };
+  if (protocol.value !== PROTOCOL) return { ok: false, code: "UNSUPPORTED_PROTOCOL" };
+
+  const shape = closedShape(root, ENVELOPE_FIELDS);
+  if (shape) return { ok: false, code: shape };
+
+  const purpose = member(root, "purpose");
+  if (purpose.kind !== "string") return { ok: false, code: "INVALID_FIELD" };
+  if (purpose.value !== COMMAND_PURPOSE) return { ok: false, code: "WRONG_PURPOSE" };
+
+  const operation = member(root, "operation");
+  if (operation.kind !== "string") return { ok: false, code: "INVALID_FIELD" };
+  if (!(OPERATIONS as readonly string[]).includes(operation.value)) return { ok: false, code: "UNSUPPORTED_OPERATION" };
+
+  for (const [name, rule] of ENVELOPE_RULES) {
+    if (!rule.ok(member(root, name))) return { ok: false, code: rule.code };
+  }
+
+  const payload = member(root, "payload") as JsonValue & { kind: "object" };
+  const fields = PAYLOAD_FIELDS[operation.value as Operation];
+  const payloadShape = closedShape(payload, fields);
+  if (payloadShape) return { ok: false, code: payloadShape };
+  for (const name of fields) {
+    const rule = PAYLOAD_RULES[name] as Rule;
+    if (!rule.ok(member(payload, name))) return { ok: false, code: rule.code };
+  }
+
+  const command = plain(root) as unknown as Command;
+  const lifetime = command.expiresAt - command.issuedAt;
+  if (lifetime < 1 || lifetime > MAX_COMMAND_LIFETIME_SECONDS) return { ok: false, code: "INVALID_LIFETIME" };
+  return { ok: true, command };
+}
+
+// ---------------------------------------------------------------------------
+// §6 Ed25519
+// ---------------------------------------------------------------------------
+
+const PKCS8_ED25519_PREFIX = fromHex("302e020100300506032b657004220420");
+
+export async function importSigningKey(seed: Uint8Array, extractable = false) {
+  if (seed.length !== 32) throw new TypeError("Ed25519 seed must be 32 bytes");
+  return crypto.subtle.importKey("pkcs8", concatBytes(PKCS8_ED25519_PREFIX, seed), { name: "Ed25519" }, extractable, ["sign"]);
+}
+
+export async function publicKeyFromSeed(seed: Uint8Array): Promise<Uint8Array> {
+  const jwk = (await crypto.subtle.exportKey("jwk", await importSigningKey(seed, true))) as { x?: string };
+  const x = fromBase64Url(jwk.x ?? "");
+  if (!x || x.length !== 32) throw new Error("could not derive public key");
+  return x;
+}
+
+export async function signBytes(seed: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, await importSigningKey(seed), message));
+}
+
+export async function verifyBytes(publicKey: Uint8Array, signature: Uint8Array, message: Uint8Array): Promise<boolean> {
+  const key = await crypto.subtle.importKey("raw", publicKey, { name: "Ed25519" }, false, ["verify"]);
+  return crypto.subtle.verify({ name: "Ed25519" }, key, signature, message);
+}
+
+/** The group order L (RFC 8032 §5.1); a signature's S must be < L. */
+export const ED25519_L = (1n << 252n) + 27742317777372353535851937790883648493n;
+
+function littleEndianToBigInt(bytes: Uint8Array): bigint {
+  let n = 0n;
+  for (let i = bytes.length - 1; i >= 0; i -= 1) n = (n << 8n) | BigInt(bytes[i] as number);
+  return n;
+}
+
+/** RFC 8032 §5.1.7 step 1, checked explicitly so no runtime default is relied on. */
+export function hasCanonicalS(signature: Uint8Array): boolean {
+  return signature.length === 64 && littleEndianToBigInt(signature.subarray(32)) < ED25519_L;
+}
+
+export type UnsignedCommand = Omit<Command, "signature">;
+
+/** Build the wire body of a correctly signed command (§6.2). */
+export async function signCommand(
+  unsigned: Readonly<Record<string, CanonicalValue>>,
+  seed: Uint8Array,
+): Promise<{ body: Uint8Array; signingInput: Uint8Array; signature: string }> {
+  const input = signingInput(unsigned);
+  const signature = toBase64Url(await signBytes(seed, input));
+  return { body: utf8(canonicalize({ ...unsigned, signature })), signingInput: input, signature };
+}
+
+// ---------------------------------------------------------------------------
+// §10 Verification (protocol layer, before local admission)
+// ---------------------------------------------------------------------------
+
+export interface TrustedKey {
+  keyId: string;
+  /** base64url, 32 raw bytes */
+  publicKey: string;
+  status: "active" | "revoked";
+}
+
+export interface VerifierState {
+  harnessId: string;
+  now: number;
+  trustedKeys: readonly TrustedKey[];
+  /** Nonces already recorded and still retained. */
+  seenNonces: readonly string[];
+}
+
+export type VerifyResult = { ok: true; command: Command } | { ok: false; code: string };
+
+export async function verifyCommand(body: Uint8Array, state: VerifierState): Promise<VerifyResult> {
+  if (body.length > MAX_MESSAGE_BYTES) return { ok: false, code: "PAYLOAD_TOO_LARGE" };
+  const parsed = parseStrictJson(body);
+  if (!parsed.ok) return parsed;
+  if (!isCommandValueProfile(parsed.value)) return { ok: false, code: "INVALID_JSON_VALUE" };
+  const schema = checkCommandSchema(parsed.value);
+  if (!schema.ok) return schema;
+  const { command } = schema;
+
+  if (toHex(utf8(canonicalizeParsed(parsed.value))) !== toHex(body)) return { ok: false, code: "NON_CANONICAL" };
+
+  const key = state.trustedKeys.find((k) => k.keyId === command.keyId);
+  if (!key) return { ok: false, code: "UNKNOWN_KEY" };
+  if (key.status !== "active") return { ok: false, code: "KEY_REVOKED" };
+
+  const publicKey = fromBase64Url(key.publicKey);
+  const signature = fromBase64Url(command.signature);
+  if (!publicKey || publicKey.length !== 32) throw new Error(`misconfigured trusted key ${key.keyId}`);
+  const { signature: _omit, ...unsigned } = command;
+  if (
+    !signature ||
+    !hasCanonicalS(signature) ||
+    !(await verifyBytes(publicKey, signature, signingInput(unsigned as unknown as Record<string, CanonicalValue>)))
+  ) {
+    return { ok: false, code: "BAD_SIGNATURE" };
+  }
+
+  if (command.audience !== state.harnessId) return { ok: false, code: "WRONG_AUDIENCE" };
+  if (command.issuedAt > state.now + MAX_CLOCK_SKEW_SECONDS) return { ok: false, code: "NOT_YET_VALID" };
+  if (state.now >= command.expiresAt + MAX_CLOCK_SKEW_SECONDS) return { ok: false, code: "EXPIRED" };
+  if (state.seenNonces.includes(command.nonce)) return { ok: false, code: "REPLAY_DETECTED" };
+  return { ok: true, command };
+}
+
+// ---------------------------------------------------------------------------
+// §9.1 Retry identity
+// ---------------------------------------------------------------------------
+
+/** §9.1 payloadHash: what D1 stores as provisioning_jobs.request_hash. */
+export function payloadHash(operation: Operation, payload: CanonicalValue): Promise<string> {
+  return sha256Hex(concatBytes(utf8(`${PROTOCOL}\u0000payload\u0000${operation}\u0000`), utf8(canonicalize(payload))));
+}
+
+/** §9.1: a redelivery repeats the logical command and renews every per-transmission field. */
+export function isValidRedelivery(first: Command, next: Command): boolean {
+  return (
+    first.protocol === next.protocol &&
+    first.purpose === next.purpose &&
+    first.operation === next.operation &&
+    first.jobId === next.jobId &&
+    first.requestId === next.requestId &&
+    first.audience === next.audience &&
+    canonicalize(first.payload as unknown as CanonicalValue) === canonicalize(next.payload as unknown as CanonicalValue) &&
+    first.commandId !== next.commandId &&
+    first.nonce !== next.nonce &&
+    first.signature !== next.signature &&
+    next.issuedAt >= first.issuedAt
+  );
+}
+
+// ---------------------------------------------------------------------------
+// §11 Errors and §12 responses
+// ---------------------------------------------------------------------------
+
+export type ErrorClass = "protocol" | "payload" | "admission" | "merits" | "operation" | "conflict" | "indeterminate";
+
+export interface ErrorDefinition {
+  code: string;
+  http: number;
+  class: ErrorClass;
+  operations: readonly Operation[];
+  /** Lightagent source codes this maps from; "gateway" codes are new in the L2 gateway. */
+  lightagent: readonly string[];
+  note?: string;
+}
+
+const ALL: readonly Operation[] = OPERATIONS;
+const CREATE: readonly Operation[] = ["profile.create"];
+const BY_OPERATION: readonly Operation[] = ["profile.status", "profile.revoke"];
+const def = (
+  code: string, http: number, cls: ErrorClass, operations: readonly Operation[], lightagent: readonly string[], note?: string,
+): ErrorDefinition => ({ code, http, class: cls, operations, lightagent, ...(note === undefined ? {} : { note }) });
+
+export const ERRORS: readonly ErrorDefinition[] = [
+  def("METHOD_NOT_ALLOWED", 405, "protocol", ALL, ["gateway"]),
+  def("UNSUPPORTED_MEDIA_TYPE", 415, "protocol", ALL, ["unsupported_media_type"]),
+  def("PAYLOAD_TOO_LARGE", 413, "protocol", ALL, ["payload_too_large"]),
+  def("MALFORMED_JSON", 400, "protocol", ALL, ["invalid_request"]),
+  def("DUPLICATE_KEY", 400, "protocol", ALL, ["gateway"]),
+  def("INVALID_JSON_VALUE", 400, "protocol", ALL, ["gateway"]),
+  def("INVALID_ENVELOPE", 400, "protocol", ALL, ["gateway"]),
+  def("UNSUPPORTED_PROTOCOL", 400, "protocol", ALL, ["gateway"]),
+  def("UNKNOWN_FIELD", 400, "protocol", ALL, ["invalid_request"]),
+  def("MISSING_FIELD", 400, "protocol", ALL, ["invalid_request"]),
+  def("WRONG_PURPOSE", 400, "protocol", ALL, ["gateway"]),
+  def("UNSUPPORTED_OPERATION", 400, "protocol", ALL, ["gateway"]),
+  def("INVALID_FIELD", 400, "protocol", ALL, ["invalid_request"]),
+  def("INVALID_LIFETIME", 400, "protocol", ALL, ["gateway"]),
+  def("NON_CANONICAL", 400, "protocol", ALL, ["gateway"]),
+  def("UNKNOWN_KEY", 401, "protocol", ALL, ["gateway"]),
+  def("KEY_REVOKED", 401, "protocol", ALL, ["gateway"]),
+  def("BAD_SIGNATURE", 401, "protocol", ALL, ["gateway"]),
+  def("WRONG_AUDIENCE", 403, "protocol", ALL, ["gateway"]),
+  def("NOT_YET_VALID", 401, "protocol", ALL, ["gateway"]),
+  def("EXPIRED", 401, "protocol", ALL, ["gateway"],
+    "From §10 step 12 (admission), or for profile.create from step 14 (execution deadline re-checked under the ledger lock). Either way this transmission had no effect."),
+  def("REPLAY_DETECTED", 409, "indeterminate", ALL, ["gateway"]),
+  def("NONCE_STORE_UNAVAILABLE", 503, "protocol", ALL, ["gateway"]),
+  def("INVALID_PROFILE_ID", 400, "payload", ALL, ["invalid_profile_id"]),
+  def("RESERVED_PROFILE_ID", 400, "payload", CREATE, ["reserved_profile_id"]),
+  def("INVALID_ISSUER", 400, "payload", CREATE, ["invalid_issuer"]),
+  def("INVALID_SUBJECT", 400, "payload", CREATE, ["invalid_subject"]),
+  def("INVALID_DISPLAY_NAME", 400, "payload", CREATE, ["invalid_display_name"]),
+  def("INVALID_TEMPLATE", 400, "payload", CREATE, ["invalid_template"],
+    "As a refusal: the payload's template is not \"assistant\". Also an operation failure code: a recorded operation whose template the harness no longer knows ends failed with it."),
+  def("INVALID_IDEMPOTENCY_KEY", 400, "payload", CREATE, ["invalid_idempotency_key", "missing_idempotency_key"]),
+  def("INVALID_OPERATION_ID", 400, "payload", BY_OPERATION, ["gateway"]),
+  def("UNAUTHENTICATED", 401, "admission", ALL, ["unauthenticated"]),
+  def("NOT_A_PROVISIONER", 403, "admission", ALL, ["not_a_provisioner"]),
+  def("CREDENTIAL_NOT_PROVISIONING_ONLY", 403, "admission", ALL, ["credential_not_provisioning_only"]),
+  def("PROVISIONER_INACTIVE", 403, "admission", ALL, ["provisioner_inactive"]),
+  def("PROVISIONER_REVOKED", 403, "admission", ALL, ["provisioner_revoked"]),
+  def("PROFILE_OUTSIDE_CREDENTIAL", 403, "admission", CREATE, ["profile_outside_credential"]),
+  def("ISSUER_NOT_ALLOWED", 403, "merits", CREATE, ["issuer_not_allowed"]),
+  def("TEMPLATE_NOT_ALLOWED", 403, "merits", CREATE, ["template_not_allowed"]),
+  def("QUOTA_EXCEEDED", 403, "merits", CREATE, ["quota_exceeded"]),
+  def("LEDGER_FULL", 403, "merits", CREATE, ["ledger_full"]),
+  def("PROFILE_UNAVAILABLE", 409, "merits", CREATE, ["profile_unavailable"]),
+  def("PRINCIPAL_INACTIVE", 409, "merits", CREATE, ["principal_inactive"]),
+  def("EXTERNAL_IDENTITY_CONFLICT", 409, "merits", CREATE, ["external_identity_conflict"]),
+  def("IDEMPOTENCY_CONFLICT", 409, "conflict", CREATE, ["idempotency_conflict"]),
+  def("UNKNOWN_OPERATION", 404, "operation", BY_OPERATION, ["unknown_operation"]),
+  def("OPERATION_IN_PROGRESS", 409, "operation", ["profile.revoke"], ["operation_in_progress"]),
+  def("NOT_REVOCABLE", 409, "operation", ["profile.revoke"], ["not_revocable"]),
+  def("OWNERSHIP_CHANGED", 409, "operation", ["profile.revoke"], ["ownership_changed"]),
+  def("STORAGE_UNAVAILABLE", 503, "indeterminate", ALL, ["storage_unavailable"]),
+  def("STORAGE_CORRUPT", 503, "indeterminate", ALL, ["storage_corrupt"]),
+  def("IDENTITY_UNAVAILABLE", 503, "indeterminate", ALL, ["identity_unavailable"]),
+  def("INTERNAL_ERROR", 500, "indeterminate", ALL, ["gateway"]),
+];
+
+/** Codes that may appear in result.failure of a `failed` operation (§12.2). */
+export const FAILURE_CODES = [
+  "ISSUER_NOT_TRUSTED", "PRINCIPAL_INACTIVE", "EXTERNAL_IDENTITY_CONFLICT", "PROFILE_UNAVAILABLE", "OWNERSHIP_CHANGED",
+  "PROVISIONER_REVOKED", "INVALID_TEMPLATE",
+] as const;
+
+export const OPERATION_STATES = ["pending", "profile_created", "completed", "failed", "revoked"] as const;
+export type OperationState = (typeof OPERATION_STATES)[number];
+
+/** A profile.create operation response is always a terminal service outcome (§12.2, CL1). */
+export const TERMINAL_STATES: readonly OperationState[] = ["completed", "failed", "revoked"];
+
+export interface OperationResult {
+  operationId: string;
+  state: OperationState;
+  failure: string | null;
+  principalId: string;
+  profileId: string;
+  template: string;
+  ownerBound: boolean;
+  createdUnix: number;
+  updatedUnix: number;
+}
+
+export type ResponseOutcome =
+  | { kind: "operation"; result: OperationResult; replayed: boolean | null }
+  | { kind: "refused"; code: string; class: ErrorClass }
+  | { kind: "uncertain"; reason: string };
+
+const RESULT_FIELDS = ["createdUnix", "failure", "operationId", "ownerBound", "principalId", "profileId", "state", "template", "updatedUnix"];
+
+function fields(value: JsonValue & { kind: "object" }): Map<string, JsonValue> {
+  return new Map(value.members);
+}
+
+function exactKeys(map: Map<string, JsonValue>, expected: readonly string[]): boolean {
+  return map.size === expected.length && expected.every((key) => map.has(key));
+}
+
+const strOf = (v: JsonValue | undefined) => (v?.kind === "string" ? v.value : undefined);
+const safeInt = (v: JsonValue | undefined) =>
+  v?.kind === "number" && CANONICAL_INTEGER.test(v.lexeme) && BigInt(v.lexeme) <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(v.lexeme) : undefined;
+const boolOf = (v: JsonValue | undefined) => (v?.kind === "true" ? true : v?.kind === "false" ? false : undefined);
+
+/** §12.4 Web's classification of a harness response to `sent`. Anything unexpected is `uncertain`. */
+export function classifyResponse(httpStatus: number, body: Uint8Array, sent: Command): ResponseOutcome {
+  const uncertain = (reason: string): ResponseOutcome => ({ kind: "uncertain", reason });
+  if (body.length > MAX_MESSAGE_BYTES) return uncertain("RESPONSE_TOO_LARGE");
+  const parsed = parseStrictJson(body);
+  if (!parsed.ok || parsed.value.kind !== "object") return uncertain("RESPONSE_INVALID");
+  const top = fields(parsed.value);
+  if (strOf(top.get("protocol")) !== PROTOCOL) return uncertain("RESPONSE_INVALID");
+
+  if (httpStatus === 200 || httpStatus === 201) {
+    const isCreate = sent.operation === "profile.create";
+    const expected = ["audience", "commandId", "operation", "protocol", "result", ...(isCreate ? ["replayed"] : [])];
+    if (!exactKeys(top, expected)) return uncertain("RESPONSE_INVALID");
+    if (strOf(top.get("commandId")) !== sent.commandId) return uncertain("RESPONSE_INVALID");
+    if (strOf(top.get("audience")) !== sent.audience) return uncertain("RESPONSE_INVALID");
+    if (strOf(top.get("operation")) !== sent.operation) return uncertain("RESPONSE_INVALID");
+    const replayed = isCreate ? boolOf(top.get("replayed")) : null;
+    if (replayed === undefined) return uncertain("RESPONSE_INVALID");
+    if (isCreate ? (httpStatus === 201) !== (replayed === false) : httpStatus !== 200) return uncertain("RESPONSE_INVALID");
+
+    const resultValue = top.get("result");
+    if (resultValue?.kind !== "object") return uncertain("RESPONSE_INVALID");
+    const r = fields(resultValue);
+    if (!exactKeys(r, RESULT_FIELDS)) return uncertain("RESPONSE_INVALID");
+    const result = {
+      operationId: strOf(r.get("operationId")),
+      state: strOf(r.get("state")),
+      failure: r.get("failure")?.kind === "null" ? null : strOf(r.get("failure")),
+      principalId: strOf(r.get("principalId")),
+      profileId: strOf(r.get("profileId")),
+      template: strOf(r.get("template")),
+      ownerBound: boolOf(r.get("ownerBound")),
+      createdUnix: safeInt(r.get("createdUnix")),
+      updatedUnix: safeInt(r.get("updatedUnix")),
+    };
+    if (
+      result.operationId === undefined || !PATTERNS.operationId.test(result.operationId) ||
+      result.state === undefined || !(OPERATION_STATES as readonly string[]).includes(result.state) ||
+      result.failure === undefined ||
+      result.principalId === undefined || !PATTERNS.principalId.test(result.principalId) ||
+      result.profileId !== sent.payload.profileId ||
+      result.template !== TEMPLATE ||
+      result.ownerBound === undefined ||
+      result.createdUnix === undefined || result.updatedUnix === undefined || result.updatedUnix < result.createdUnix
+    ) {
+      return uncertain("RESPONSE_INVALID");
+    }
+    if ((result.state === "failed") !== (result.failure !== null)) return uncertain("RESPONSE_INVALID");
+    if (result.failure !== null && !(FAILURE_CODES as readonly string[]).includes(result.failure)) return uncertain("RESPONSE_INVALID");
+    // ownerBound is current ownership, independent of state (§12.2, RC2): no cross-check here.
+    if (isCreate && !TERMINAL_STATES.includes(result.state as OperationState)) return uncertain("RESPONSE_INVALID");
+    if (!isCreate && result.operationId !== (sent.payload as OperationPayload).operationId) return uncertain("RESPONSE_INVALID");
+    if (sent.operation === "profile.revoke" && result.state !== "revoked") return uncertain("RESPONSE_INVALID");
+    return { kind: "operation", result: result as OperationResult, replayed };
+  }
+
+  if (!exactKeys(top, ["code", "commandId", "protocol"])) return uncertain("RESPONSE_INVALID");
+  const commandId = top.get("commandId");
+  if (!(commandId?.kind === "null" || strOf(commandId) === sent.commandId)) return uncertain("RESPONSE_INVALID");
+  const code = strOf(top.get("code"));
+  const definition = ERRORS.find((e) => e.code === code);
+  if (!definition || definition.http !== httpStatus || !definition.operations.includes(sent.operation)) {
+    return uncertain("RESPONSE_INVALID");
+  }
+  if (definition.class === "indeterminate") return uncertain(definition.code);
+  return { kind: "refused", code: definition.code, class: definition.class };
+}
+
+// ---------------------------------------------------------------------------
+// §13.2 Create resolution (Web state machine)
+// ---------------------------------------------------------------------------
+
+export type TransmissionOutcome =
+  | { kind: "operation"; operationId: string; state: OperationState }
+  | { kind: "refused"; code: string }
+  | { kind: "uncertain" };
+
+export interface Transmission {
+  issuedAt: number;
+  expiresAt: number;
+  outcome: TransmissionOutcome;
+}
+
+export type CreateResolution =
+  | { status: "resolved"; operationId: string; state: OperationState }
+  | { status: "failed"; code: string }
+  | { status: "attention"; code: string }
+  | { status: "unresolved" };
+
+const classOf = (code: string) => ERRORS.find((e) => e.code === code)?.class;
+
+/**
+ * Decide what Web may conclude about one profile.create job from every
+ * transmission it made (§13.2). Exhausted retries never produce `failed`.
+ */
+export function resolveCreateJob(transmissions: readonly Transmission[]): CreateResolution {
+  const operations = transmissions.flatMap((t) => (t.outcome.kind === "operation" ? [t.outcome] : []));
+  if (operations.length > 0) {
+    const first = operations[0] as { operationId: string; state: OperationState };
+    if (operations.some((o) => o.operationId !== first.operationId)) return { status: "attention", code: "OPERATION_MISMATCH" };
+    const latest = operations[operations.length - 1] as { operationId: string; state: OperationState };
+    return { status: "resolved", operationId: latest.operationId, state: latest.state };
+  }
+  const refusals = transmissions.flatMap((t) => (t.outcome.kind === "refused" ? [{ ...t, code: t.outcome.code }] : []));
+  if (refusals.some((r) => classOf(r.code) === "conflict")) return { status: "attention", code: "IDEMPOTENCY_CONFLICT" };
+  if (refusals.some((r) => classOf(r.code) === undefined)) return { status: "attention", code: "UNKNOWN_REFUSAL" };
+  const payloadRefusal = refusals.find((r) => classOf(r.code) === "payload");
+  if (payloadRefusal) return { status: "failed", code: payloadRefusal.code };
+  if (refusals.length === 0) return { status: "unresolved" };
+
+  // Every uncertain transmission must be ruled out by a merits refusal of a
+  // transmission issued after that one's acceptance horizon (§13.2 rule R3).
+  const merits = refusals.filter((r) => classOf(r.code) === "merits");
+  const ruledOut = transmissions
+    .filter((t) => t.outcome.kind === "uncertain")
+    .every((u) => merits.some((m) => m.issuedAt >= u.expiresAt + ACCEPTANCE_HORIZON_SECONDS));
+  if (!ruledOut) return { status: "unresolved" };
+  const latest = refusals.reduce((a, b) => (b.issuedAt >= a.issuedAt ? b : a));
+  return { status: "failed", code: latest.code };
+}
+
+// ---------------------------------------------------------------------------
+// §13.1 Ownership observations (RC2)
+// ---------------------------------------------------------------------------
+
+export type OwnershipAssessment =
+  | "bound"
+  | "unbound"
+  | "bound-informational"
+  | "attention:OWNERSHIP_LOST"
+  | "attention:UNEXPECTED_BINDING";
+
+/**
+ * What Web concludes from `ownerBound`, which reports whether the operation's
+ * principal owns the profile when the harness answers, independently of the
+ * operation's (historical) state. It never says this request created a binding.
+ */
+export function assessOwnership(result: Pick<OperationResult, "state" | "ownerBound">): OwnershipAssessment {
+  if (result.state === "completed") return result.ownerBound ? "bound" : "attention:OWNERSHIP_LOST";
+  if (result.state === "revoked") return result.ownerBound ? "attention:UNEXPECTED_BINDING" : "unbound";
+  return result.ownerBound ? "bound-informational" : "unbound";
+}
+
+// ---------------------------------------------------------------------------
+// §10 step 14 Execution deadline (RC1)
+// ---------------------------------------------------------------------------
+
+/** The harness-clock instant from which a create may no longer start executing. */
+export function executionDeadline(command: Pick<Command, "expiresAt">): number {
+  return command.expiresAt + MAX_CLOCK_SKEW_SECONDS;
+}
+
+/** §10 step 14: re-read the clock after acquiring the ledger lock, before the idempotency lookup. */
+export function checkExecutionDeadline(command: Pick<Command, "expiresAt">, lockAcquiredAt: number): "proceed" | "EXPIRED" {
+  return lockAcquiredAt >= executionDeadline(command) ? "EXPIRED" : "proceed";
+}
+
+/**
+ * A model of one harness serving the transmissions of one profile.create job
+ * under PR #26's semantics: every call holds the ledger lock for its whole
+ * duration (calls are totally ordered by lock acquisition), an idempotency
+ * hit returns the recorded operation, a miss runs the merits checks (here: a
+ * quota that is available only in some intervals), and nothing is written
+ * before the operation is recorded. Times on the harness side are harness
+ * clock; issuedAt/expiresAt are Web's stamps.
+ */
+export interface RaceAttempt {
+  issuedAt: number;
+  expiresAt: number;
+  /** Harness clock at §10 step 12, or null if the request never arrived. */
+  admittedAt: number | null;
+  /** Harness clock when the ledger lock was acquired (≥ admittedAt). */
+  lockAcquiredAt?: number;
+  /** The harness clock when this call releases the lock; defaults to lockAcquiredAt. */
+  releasedAt?: number;
+  /** Web never receives this transmission's response (timeout, lost connection). */
+  responseLost?: boolean;
+  /** The call records the operation as pending and then fails with an indeterminate error. */
+  crashAfterRecord?: boolean;
+}
+
+export interface RaceScenario {
+  attempts: readonly RaceAttempt[];
+  /** Harness-clock intervals [from, to) in which the provisioner's quota allows a new profile. */
+  quotaAvailable: ReadonlyArray<readonly [number, number]>;
+  /** Whether the harness implements §10 step 14. */
+  executionDeadlineCheck: boolean;
+}
+
+export interface RaceResult {
+  harness: string[];
+  /** The final operation recorded for the key, if any. */
+  operation: OperationState | null;
+  web: CreateResolution;
+  /** Web concluded `failed` although an operation exists (the RC1 defect). */
+  unsafe: boolean;
+}
+
+export function simulateCreateRace(scenario: RaceScenario): RaceResult {
+  const order = scenario.attempts
+    .map((attempt, index) => ({ attempt, index }))
+    .filter(({ attempt }) => attempt.admittedAt !== null)
+    .sort((a, b) => (a.attempt.lockAcquiredAt ?? (a.attempt.admittedAt as number)) - (b.attempt.lockAcquiredAt ?? (b.attempt.admittedAt as number)));
+  const harness: string[] = scenario.attempts.map(() => "NOT_RECEIVED");
+  let operation: OperationState | null = null;
+  let lockFreeAt = -Infinity;
+  const quotaAt = (t: number) => scenario.quotaAvailable.some(([from, to]) => t >= from && t < to);
+
+  for (const { attempt, index } of order) {
+    const admittedAt = attempt.admittedAt as number;
+    const lockAt = attempt.lockAcquiredAt ?? admittedAt;
+    if (lockAt < admittedAt || lockAt < lockFreeAt) throw new Error(`attempt ${index}: lock acquired while held or before admission`);
+    lockFreeAt = attempt.releasedAt ?? lockAt;
+    if (admittedAt < attempt.issuedAt - MAX_CLOCK_SKEW_SECONDS) {
+      harness[index] = "NOT_YET_VALID";
+      continue;
+    }
+    if (admittedAt >= attempt.expiresAt + MAX_CLOCK_SKEW_SECONDS) {
+      harness[index] = "EXPIRED";
+      continue;
+    }
+    if (scenario.executionDeadlineCheck && checkExecutionDeadline(attempt, lockAt) === "EXPIRED") {
+      harness[index] = "EXPIRED";
+      continue;
+    }
+    if (operation !== null) {
+      // Idempotency hit: resume drives a recorded operation to its terminal state.
+      if (operation === "pending") operation = "completed";
+      harness[index] = `OPERATION:${operation}`;
+      continue;
+    }
+    if (!quotaAt(lockAt)) {
+      harness[index] = "QUOTA_EXCEEDED";
+      continue;
+    }
+    if (attempt.crashAfterRecord) {
+      operation = "pending";
+      harness[index] = "STORAGE_UNAVAILABLE";
+      continue;
+    }
+    operation = "completed";
+    harness[index] = "OPERATION:completed";
+  }
+
+  const transmissions: Transmission[] = scenario.attempts.map((attempt, index) => {
+    const answer = harness[index] as string;
+    if (attempt.responseLost || answer === "NOT_RECEIVED") return { ...attempt, outcome: { kind: "uncertain" } };
+    if (answer.startsWith("OPERATION:")) {
+      return { ...attempt, outcome: { kind: "operation", operationId: "0".repeat(32), state: answer.slice(10) as OperationState } };
+    }
+    if (classOf(answer) === "indeterminate") return { ...attempt, outcome: { kind: "uncertain" } };
+    return { ...attempt, outcome: { kind: "refused", code: answer } };
+  });
+  const web = resolveCreateJob(transmissions.map(({ issuedAt, expiresAt, outcome }) => ({ issuedAt, expiresAt, outcome })));
+  return { harness, operation, web, unsafe: web.status === "failed" && operation !== null };
+}

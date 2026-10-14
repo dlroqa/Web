@@ -1,0 +1,3 @@
+# LA-WEB-PROVISIONING/1: hashed artifacts must keep their exact bytes.
+docs/PROVISIONING_PROTOCOL.md -text
+protocol/la-web-provisioning-1/** -text

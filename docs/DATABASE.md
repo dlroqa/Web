@@ -113,10 +113,10 @@ credentials are stored. A test asserts no such column exists.
 |---|---|---|
 | `id` | TEXT PK | `prv_…` |
 | `user_id`, `agent_profile_id`, `harness_id` | TEXT FKs | Immutable |
-| `operation` | TEXT | `profile.create` · `profile.disable` · `profile.enable` · `profile.revoke` |
+| `operation` | TEXT | `profile.create` · `profile.disable` · `profile.enable` · `profile.revoke`. Provisioning v1 ([PROVISIONING_PROTOCOL.md](PROVISIONING_PROTOCOL.md)) sends only `profile.create` and `profile.revoke` (plus unrecorded `profile.status` polls) |
 | `request_id` | TEXT | `req_…` of the originating API request (propagated to Lightagent) |
 | `idempotency_key` | TEXT **UNIQUE** | 16–128 chars `[A-Za-z0-9_-]` |
-| `request_hash` | TEXT | Lowercase hex SHA-256 of the canonical command payload |
+| `request_hash` | TEXT | Lowercase hex SHA-256 of the canonical command payload (`payloadHash`, PROVISIONING_PROTOCOL §9.1) |
 | `status` | TEXT | see state machine |
 | `attempt_count` | INTEGER 0–10 | Incremented on every entry into `sending` |
 | `error_code` | TEXT NULL | Stable code `[A-Z0-9_]{1,64}`; required when `failed` |

@@ -1,0 +1,678 @@
+{
+  "protocol": "LA-WEB-PROVISIONING/1",
+  "fixtureSet": "la-web-provisioning-1/r2",
+  "kind": "errors",
+  "description": "Normative error registry (§11). `lightagent` lists the existing Lightagent codes each maps from; `gateway` marks codes the signed-command gateway introduces.",
+  "errors": [
+    {
+      "code": "METHOD_NOT_ALLOWED",
+      "http": 405,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "UNSUPPORTED_MEDIA_TYPE",
+      "http": 415,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "unsupported_media_type"
+      ]
+    },
+    {
+      "code": "PAYLOAD_TOO_LARGE",
+      "http": 413,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "payload_too_large"
+      ]
+    },
+    {
+      "code": "MALFORMED_JSON",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "invalid_request"
+      ]
+    },
+    {
+      "code": "DUPLICATE_KEY",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "INVALID_JSON_VALUE",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "INVALID_ENVELOPE",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "UNSUPPORTED_PROTOCOL",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "UNKNOWN_FIELD",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "invalid_request"
+      ]
+    },
+    {
+      "code": "MISSING_FIELD",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "invalid_request"
+      ]
+    },
+    {
+      "code": "WRONG_PURPOSE",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "UNSUPPORTED_OPERATION",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "INVALID_FIELD",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "invalid_request"
+      ]
+    },
+    {
+      "code": "INVALID_LIFETIME",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "NON_CANONICAL",
+      "http": 400,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "UNKNOWN_KEY",
+      "http": 401,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "KEY_REVOKED",
+      "http": 401,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "BAD_SIGNATURE",
+      "http": 401,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "WRONG_AUDIENCE",
+      "http": 403,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "NOT_YET_VALID",
+      "http": 401,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "EXPIRED",
+      "http": 401,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ],
+      "note": "From §10 step 12 (admission), or for profile.create from step 14 (execution deadline re-checked under the ledger lock). Either way this transmission had no effect."
+    },
+    {
+      "code": "REPLAY_DETECTED",
+      "http": 409,
+      "class": "indeterminate",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "NONCE_STORE_UNAVAILABLE",
+      "http": 503,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "INVALID_PROFILE_ID",
+      "http": 400,
+      "class": "payload",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "invalid_profile_id"
+      ]
+    },
+    {
+      "code": "RESERVED_PROFILE_ID",
+      "http": 400,
+      "class": "payload",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "reserved_profile_id"
+      ]
+    },
+    {
+      "code": "INVALID_ISSUER",
+      "http": 400,
+      "class": "payload",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "invalid_issuer"
+      ]
+    },
+    {
+      "code": "INVALID_SUBJECT",
+      "http": 400,
+      "class": "payload",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "invalid_subject"
+      ]
+    },
+    {
+      "code": "INVALID_DISPLAY_NAME",
+      "http": 400,
+      "class": "payload",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "invalid_display_name"
+      ]
+    },
+    {
+      "code": "INVALID_TEMPLATE",
+      "http": 400,
+      "class": "payload",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "invalid_template"
+      ],
+      "note": "As a refusal: the payload's template is not \"assistant\". Also an operation failure code: a recorded operation whose template the harness no longer knows ends failed with it."
+    },
+    {
+      "code": "INVALID_IDEMPOTENCY_KEY",
+      "http": 400,
+      "class": "payload",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "invalid_idempotency_key",
+        "missing_idempotency_key"
+      ]
+    },
+    {
+      "code": "INVALID_OPERATION_ID",
+      "http": 400,
+      "class": "payload",
+      "operations": [
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    },
+    {
+      "code": "UNAUTHENTICATED",
+      "http": 401,
+      "class": "admission",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "unauthenticated"
+      ]
+    },
+    {
+      "code": "NOT_A_PROVISIONER",
+      "http": 403,
+      "class": "admission",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "not_a_provisioner"
+      ]
+    },
+    {
+      "code": "CREDENTIAL_NOT_PROVISIONING_ONLY",
+      "http": 403,
+      "class": "admission",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "credential_not_provisioning_only"
+      ]
+    },
+    {
+      "code": "PROVISIONER_INACTIVE",
+      "http": 403,
+      "class": "admission",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "provisioner_inactive"
+      ]
+    },
+    {
+      "code": "PROVISIONER_REVOKED",
+      "http": 403,
+      "class": "admission",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "provisioner_revoked"
+      ]
+    },
+    {
+      "code": "PROFILE_OUTSIDE_CREDENTIAL",
+      "http": 403,
+      "class": "admission",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "profile_outside_credential"
+      ]
+    },
+    {
+      "code": "ISSUER_NOT_ALLOWED",
+      "http": 403,
+      "class": "merits",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "issuer_not_allowed"
+      ]
+    },
+    {
+      "code": "TEMPLATE_NOT_ALLOWED",
+      "http": 403,
+      "class": "merits",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "template_not_allowed"
+      ]
+    },
+    {
+      "code": "QUOTA_EXCEEDED",
+      "http": 403,
+      "class": "merits",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "quota_exceeded"
+      ]
+    },
+    {
+      "code": "LEDGER_FULL",
+      "http": 403,
+      "class": "merits",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "ledger_full"
+      ]
+    },
+    {
+      "code": "PROFILE_UNAVAILABLE",
+      "http": 409,
+      "class": "merits",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "profile_unavailable"
+      ]
+    },
+    {
+      "code": "PRINCIPAL_INACTIVE",
+      "http": 409,
+      "class": "merits",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "principal_inactive"
+      ]
+    },
+    {
+      "code": "EXTERNAL_IDENTITY_CONFLICT",
+      "http": 409,
+      "class": "merits",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "external_identity_conflict"
+      ]
+    },
+    {
+      "code": "IDEMPOTENCY_CONFLICT",
+      "http": 409,
+      "class": "conflict",
+      "operations": [
+        "profile.create"
+      ],
+      "lightagent": [
+        "idempotency_conflict"
+      ]
+    },
+    {
+      "code": "UNKNOWN_OPERATION",
+      "http": 404,
+      "class": "operation",
+      "operations": [
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "unknown_operation"
+      ]
+    },
+    {
+      "code": "OPERATION_IN_PROGRESS",
+      "http": 409,
+      "class": "operation",
+      "operations": [
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "operation_in_progress"
+      ]
+    },
+    {
+      "code": "NOT_REVOCABLE",
+      "http": 409,
+      "class": "operation",
+      "operations": [
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "not_revocable"
+      ]
+    },
+    {
+      "code": "OWNERSHIP_CHANGED",
+      "http": 409,
+      "class": "operation",
+      "operations": [
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "ownership_changed"
+      ]
+    },
+    {
+      "code": "STORAGE_UNAVAILABLE",
+      "http": 503,
+      "class": "indeterminate",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "storage_unavailable"
+      ]
+    },
+    {
+      "code": "STORAGE_CORRUPT",
+      "http": 503,
+      "class": "indeterminate",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "storage_corrupt"
+      ]
+    },
+    {
+      "code": "IDENTITY_UNAVAILABLE",
+      "http": 503,
+      "class": "indeterminate",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "identity_unavailable"
+      ]
+    },
+    {
+      "code": "INTERNAL_ERROR",
+      "http": 500,
+      "class": "indeterminate",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ]
+    }
+  ],
+  "operationFailureCodes": [
+    "ISSUER_NOT_TRUSTED",
+    "PRINCIPAL_INACTIVE",
+    "EXTERNAL_IDENTITY_CONFLICT",
+    "PROFILE_UNAVAILABLE",
+    "OWNERSHIP_CHANGED",
+    "PROVISIONER_REVOKED",
+    "INVALID_TEMPLATE"
+  ],
+  "operationStates": [
+    "pending",
+    "profile_created",
+    "completed",
+    "failed",
+    "revoked"
+  ]
+}

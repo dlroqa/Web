@@ -1,0 +1,115 @@
+{
+  "protocol": "LA-WEB-PROVISIONING/1",
+  "fixtureSet": "la-web-provisioning-1/r2",
+  "kind": "keys",
+  "warning": "TEST-ONLY. Every seed is SHA-256 of a public label. Never trust these keys on any real harness.",
+  "derivation": "seed = SHA-256(UTF-8 label); publicKey = Ed25519 public key of seed (RFC 8032).",
+  "encodings": {
+    "seedHex": "lowercase hex, 32 bytes",
+    "publicKey": "base64url without padding, 32 bytes (wire/config form)",
+    "publicKeyHex": "lowercase hex, 32 bytes"
+  },
+  "keys": [
+    {
+      "name": "active",
+      "keyId": "web-test-active",
+      "description": "Current Worker signing key. Trusted (active) by every verifier state except afterRotation.",
+      "label": "LA-WEB-PROVISIONING/1 TEST-ONLY signing key: active",
+      "seedHex": "efd164f3927e9328e8752d7dbe09e35dcf4b5cab581b2718286f638b8d5cc73c",
+      "publicKey": "e_ezzMPOYjkP-vj8ROC_HIkvz6wHTM2zMLNFjNdTGwQ",
+      "publicKeyHex": "7bf7b3ccc3ce62390ffaf8fc44e0bf1c892fcfac074ccdb330b3458cd7531b04"
+    },
+    {
+      "name": "rotated",
+      "keyId": "web-test-rotated",
+      "description": "Successor key introduced by rotation. Trusted (active) during the overlap and after rotation.",
+      "label": "LA-WEB-PROVISIONING/1 TEST-ONLY signing key: rotated",
+      "seedHex": "2b3674ee2a11ada77e535d70559484093082d9bc109aba4d560f58b36c852bd3",
+      "publicKey": "0Pk3GtIsRUZz9mxQcS0__7Un1H36qc3tdWF5AwencAo",
+      "publicKeyHex": "d0f9371ad22c454673f66c50712d3fffb527d47dfaa9cded7561790307a7700a"
+    },
+    {
+      "name": "revoked",
+      "keyId": "web-test-revoked",
+      "description": "A key the harness operator marked revoked. Must be refused even though its signatures verify.",
+      "label": "LA-WEB-PROVISIONING/1 TEST-ONLY signing key: revoked",
+      "seedHex": "63c7dccfb278fd09211fa5659ffde82c1b719905177f43f8d1594059655e4e3f",
+      "publicKey": "QRfEq81sFRaSOJfVBhNb0NYnWTfRjLYH_nJlPCj1ewA",
+      "publicKeyHex": "4117c4abcd6c1516923897d506135bd0d6275937d18cb607fe72653c28f57b00"
+    },
+    {
+      "name": "untrusted",
+      "keyId": "web-test-untrusted",
+      "description": "Never configured on any harness. Used to forge signatures.",
+      "label": "LA-WEB-PROVISIONING/1 TEST-ONLY signing key: untrusted",
+      "seedHex": "c5d04cc7a5b1d51ebc2382fe5f1f546885ffe60725ea6fd66551ebbadde995e0",
+      "publicKey": "NoepwJii-stdMULcjmh0wLNKwqXh28TeMrJJsnwKuTk",
+      "publicKeyHex": "3687a9c098a2facb5d3142dc8e6874c0b34ac2a5e1dbc4de32b249b27c0ab939"
+    }
+  ],
+  "verifierStates": {
+    "overlap": {
+      "harnessId": "hns_fixtureharnessalpha0000001",
+      "trustedKeys": [
+        {
+          "keyId": "web-test-active",
+          "publicKey": "e_ezzMPOYjkP-vj8ROC_HIkvz6wHTM2zMLNFjNdTGwQ",
+          "status": "active"
+        },
+        {
+          "keyId": "web-test-rotated",
+          "publicKey": "0Pk3GtIsRUZz9mxQcS0__7Un1H36qc3tdWF5AwencAo",
+          "status": "active"
+        },
+        {
+          "keyId": "web-test-revoked",
+          "publicKey": "QRfEq81sFRaSOJfVBhNb0NYnWTfRjLYH_nJlPCj1ewA",
+          "status": "revoked"
+        }
+      ]
+    },
+    "afterRotation": {
+      "harnessId": "hns_fixtureharnessalpha0000001",
+      "trustedKeys": [
+        {
+          "keyId": "web-test-rotated",
+          "publicKey": "0Pk3GtIsRUZz9mxQcS0__7Un1H36qc3tdWF5AwencAo",
+          "status": "active"
+        },
+        {
+          "keyId": "web-test-revoked",
+          "publicKey": "QRfEq81sFRaSOJfVBhNb0NYnWTfRjLYH_nJlPCj1ewA",
+          "status": "revoked"
+        }
+      ]
+    },
+    "harnessB": {
+      "harnessId": "hns_fixtureharnessbravo0000002",
+      "trustedKeys": [
+        {
+          "keyId": "web-test-active",
+          "publicKey": "e_ezzMPOYjkP-vj8ROC_HIkvz6wHTM2zMLNFjNdTGwQ",
+          "status": "active"
+        },
+        {
+          "keyId": "web-test-rotated",
+          "publicKey": "0Pk3GtIsRUZz9mxQcS0__7Un1H36qc3tdWF5AwencAo",
+          "status": "active"
+        },
+        {
+          "keyId": "web-test-revoked",
+          "publicKey": "QRfEq81sFRaSOJfVBhNb0NYnWTfRjLYH_nJlPCj1ewA",
+          "status": "revoked"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "maxMessageBytes": 8192,
+    "maxNestingDepth": 16,
+    "maxCommandLifetimeSeconds": 120,
+    "maxClockSkewSeconds": 30,
+    "acceptanceHorizonSeconds": 60,
+    "signingContextHex": "4c412d5745422d50524f564953494f4e494e472f310070726f766973696f6e696e672d636f6d6d616e6400"
+  }
+}

@@ -1,0 +1,678 @@
+{
+  "protocol": "LA-WEB-PROVISIONING/1",
+  "fixtureSet": "la-web-provisioning-1/r2",
+  "kind": "responses",
+  "description": "How Web classifies a harness answer to the command named by `request` (from commands-valid.json). `body` is the exact UTF-8 response body. Lightagent's gateway must only produce bodies that classify as `operation` or `refused`.",
+  "vectors": [
+    {
+      "id": "create-201-completed",
+      "description": "New operation, completed.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "completed",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": true,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": false,
+        "ownership": "bound"
+      }
+    },
+    {
+      "id": "create-200-replayed-completed",
+      "description": "Same key again after completion: the recorded outcome, not a new binding.",
+      "request": "valid-create-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":true,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "completed",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": true,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": true,
+        "ownership": "bound"
+      }
+    },
+    {
+      "id": "create-200-replayed-completed-not-owner",
+      "description": "Completed earlier, but the operator has since changed ownership (RC2): valid, needs attention.",
+      "request": "valid-create-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":true,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "completed",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": false,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": true,
+        "ownership": "attention:OWNERSHIP_LOST"
+      }
+    },
+    {
+      "id": "create-200-replayed-revoked",
+      "description": "Same key after revocation (S1): revoked, not re-bound.",
+      "request": "valid-create-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":true,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"revoked\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "revoked",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": false,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": true,
+        "ownership": "unbound"
+      }
+    },
+    {
+      "id": "create-201-failed",
+      "description": "Operation failed on the merits during binding.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"failed\",\"failure\":\"PRINCIPAL_INACTIVE\",\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "failed",
+          "failure": "PRINCIPAL_INACTIVE",
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": false,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": false,
+        "ownership": "unbound"
+      }
+    },
+    {
+      "id": "create-200-failed-invalid-template",
+      "description": "Recorded operation whose template the harness no longer knows (RC3).",
+      "request": "valid-create-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":true,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"failed\",\"failure\":\"INVALID_TEMPLATE\",\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "failed",
+          "failure": "INVALID_TEMPLATE",
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": false,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": true,
+        "ownership": "unbound"
+      }
+    },
+    {
+      "id": "create-401-expired-at-execution",
+      "description": "Admitted in time but reached the ledger lock after its execution deadline (§10 step 14): no effect.",
+      "request": "valid-create-basic",
+      "httpStatus": 401,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"code\":\"EXPIRED\"}",
+      "expect": {
+        "kind": "refused",
+        "code": "EXPIRED",
+        "class": "protocol"
+      }
+    },
+    {
+      "id": "status-200-completed",
+      "description": "Status of a completed operation.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "completed",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": true,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": null,
+        "ownership": "bound"
+      }
+    },
+    {
+      "id": "status-200-profile-created",
+      "description": "Interrupted create (profile staged, not bound); status does not advance it.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"profile_created\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "profile_created",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": false,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": null,
+        "ownership": "unbound"
+      }
+    },
+    {
+      "id": "status-200-pending",
+      "description": "Interrupted create recorded as pending.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"pending\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "pending",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": false,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": null,
+        "ownership": "unbound"
+      }
+    },
+    {
+      "id": "status-200-profile-created-owner-bound",
+      "description": "Crash after the identity commit: bound, ledger not yet completed (RC2, informational).",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"profile_created\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "profile_created",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": true,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": null,
+        "ownership": "bound-informational"
+      }
+    },
+    {
+      "id": "status-200-completed-not-owner",
+      "description": "Completed, ownership since changed by the operator (RC2).",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "completed",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": false,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": null,
+        "ownership": "attention:OWNERSHIP_LOST"
+      }
+    },
+    {
+      "id": "status-200-failed-owner-bound",
+      "description": "Failed operation whose principal owns the profile through a later operation (RC2, informational).",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"failed\",\"failure\":\"PROFILE_UNAVAILABLE\",\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "failed",
+          "failure": "PROFILE_UNAVAILABLE",
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": true,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": null,
+        "ownership": "bound-informational"
+      }
+    },
+    {
+      "id": "status-200-revoked-owner-bound",
+      "description": "Revoked, but the principal owns the profile again (operator action): unexpected binding.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"revoked\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "revoked",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": true,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000002
+        },
+        "replayed": null,
+        "ownership": "attention:UNEXPECTED_BINDING"
+      }
+    },
+    {
+      "id": "revoke-200-revoked",
+      "description": "Revocation recorded.",
+      "request": "valid-revoke-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_d374fb00dc6eda5b661fb23235\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.revoke\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"revoked\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000900}}",
+      "expect": {
+        "kind": "operation",
+        "result": {
+          "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+          "state": "revoked",
+          "failure": null,
+          "principalId": "ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46",
+          "profileId": "agt_fixtureprofile000000000001",
+          "template": "assistant",
+          "ownerBound": false,
+          "createdUnix": 1791000001,
+          "updatedUnix": 1791000900
+        },
+        "replayed": null,
+        "ownership": "unbound"
+      }
+    },
+    {
+      "id": "create-409-profile-unavailable",
+      "description": "Refused on the merits; no operation exists for this key.",
+      "request": "valid-create-basic",
+      "httpStatus": 409,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"code\":\"PROFILE_UNAVAILABLE\"}",
+      "expect": {
+        "kind": "refused",
+        "code": "PROFILE_UNAVAILABLE",
+        "class": "merits"
+      }
+    },
+    {
+      "id": "create-401-unauthenticated",
+      "description": "Local admission refused.",
+      "request": "valid-create-basic",
+      "httpStatus": 401,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"code\":\"UNAUTHENTICATED\"}",
+      "expect": {
+        "kind": "refused",
+        "code": "UNAUTHENTICATED",
+        "class": "admission"
+      }
+    },
+    {
+      "id": "create-400-malformed-null-command-id",
+      "description": "Refused before the envelope was understood; commandId null.",
+      "request": "valid-create-basic",
+      "httpStatus": 400,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":null,\"code\":\"MALFORMED_JSON\"}",
+      "expect": {
+        "kind": "refused",
+        "code": "MALFORMED_JSON",
+        "class": "protocol"
+      }
+    },
+    {
+      "id": "create-503-storage-unavailable",
+      "description": "Storage failure: the operation may exist.",
+      "request": "valid-create-basic",
+      "httpStatus": 503,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"code\":\"STORAGE_UNAVAILABLE\"}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "STORAGE_UNAVAILABLE"
+      }
+    },
+    {
+      "id": "create-409-replay-detected",
+      "description": "A duplicated copy of this transmission may have executed.",
+      "request": "valid-create-basic",
+      "httpStatus": 409,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"code\":\"REPLAY_DETECTED\"}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "REPLAY_DETECTED"
+      }
+    },
+    {
+      "id": "status-404-unknown-operation",
+      "description": "Operation unknown to this provisioner.",
+      "request": "valid-status-basic",
+      "httpStatus": 404,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"code\":\"UNKNOWN_OPERATION\"}",
+      "expect": {
+        "kind": "refused",
+        "code": "UNKNOWN_OPERATION",
+        "class": "operation"
+      }
+    },
+    {
+      "id": "revoke-409-in-progress",
+      "description": "Create still running; retry later.",
+      "request": "valid-revoke-basic",
+      "httpStatus": 409,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_d374fb00dc6eda5b661fb23235\",\"code\":\"OPERATION_IN_PROGRESS\"}",
+      "expect": {
+        "kind": "refused",
+        "code": "OPERATION_IN_PROGRESS",
+        "class": "operation"
+      }
+    },
+    {
+      "id": "revoke-409-ownership-changed",
+      "description": "Operator reassigned the profile.",
+      "request": "valid-revoke-basic",
+      "httpStatus": 409,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_d374fb00dc6eda5b661fb23235\",\"code\":\"OWNERSHIP_CHANGED\"}",
+      "expect": {
+        "kind": "refused",
+        "code": "OWNERSHIP_CHANGED",
+        "class": "operation"
+      }
+    },
+    {
+      "id": "invalid-command-id-mismatch",
+      "description": "commandId of another command.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-audience-mismatch",
+      "description": "Answer claims to come from harness B.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessbravo0000002\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-profile-mismatch",
+      "description": "result.profileId differs from the request.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000002\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-create-nonterminal-pending",
+      "description": "A create answered with a non-terminal state (create responses are terminal, CL1).",
+      "request": "valid-create-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":true,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"pending\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-create-nonterminal-profile-created",
+      "description": "A create answered with profile_created.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"profile_created\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-failure-unregistered",
+      "description": "Failure code outside the registry.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"failed\",\"failure\":\"TEMPLATE_GONE\",\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-failure-lowercase",
+      "description": "Failure code not uppercased.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"failed\",\"failure\":\"principal_inactive\",\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-failed-without-code",
+      "description": "state failed with failure null.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"failed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":false,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-201-replayed",
+      "description": "HTTP 201 with replayed true.",
+      "request": "valid-create-basic",
+      "httpStatus": 201,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":true,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-http-202",
+      "description": "HTTP 202 is never a protocol answer.",
+      "request": "valid-create-basic",
+      "httpStatus": 202,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.create\",\"replayed\":false,\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-duplicate-key",
+      "description": "Duplicate state member.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"revoked\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-unknown-result-field",
+      "description": "Extra member in result.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002,\"callbackUrl\":\"https://x.example\"}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-unregistered-code",
+      "description": "Error code not in the registry.",
+      "request": "valid-create-basic",
+      "httpStatus": 400,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"code\":\"SOMETHING_ELSE\"}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-code-http-mismatch",
+      "description": "QUOTA_EXCEEDED with HTTP 409 (registry says 403).",
+      "request": "valid-create-basic",
+      "httpStatus": 409,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_430fe33cce765249e22be19eb9\",\"code\":\"QUOTA_EXCEEDED\"}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-code-wrong-operation",
+      "description": "A create-only code answering profile.status.",
+      "request": "valid-status-basic",
+      "httpStatus": 403,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"code\":\"QUOTA_EXCEEDED\"}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-revoke-completed",
+      "description": "Revoke answered with a completed operation.",
+      "request": "valid-revoke-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_d374fb00dc6eda5b661fb23235\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.revoke\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-status-other-operation",
+      "description": "Status of a different operation id.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"ffffffffffffffffffffffffffffffff\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-html-502",
+      "description": "Proxy error page.",
+      "request": "valid-create-basic",
+      "httpStatus": 502,
+      "body": "<html>Bad gateway</html>",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-oversized",
+      "description": "Body above 8 KiB.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_TOO_LARGE"
+      }
+    },
+    {
+      "id": "invalid-updated-before-created",
+      "description": "updatedUnix < createdUnix.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000000}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-float-timestamp",
+      "description": "createdUnix written as a float.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/1\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001.0,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    },
+    {
+      "id": "invalid-protocol",
+      "description": "Different protocol identifier.",
+      "request": "valid-status-basic",
+      "httpStatus": 200,
+      "body": "{\"protocol\":\"LA-WEB-PROVISIONING/2\",\"commandId\":\"cmd_cf80e0d0ef24268798ce9a1fec\",\"audience\":\"hns_fixtureharnessalpha0000001\",\"operation\":\"profile.status\",\"result\":{\"operationId\":\"0f1e2d3c4b5a69788796a5b4c3d2e1f0\",\"state\":\"completed\",\"failure\":null,\"principalId\":\"ext-3b0c44298fc1c149afbf4c8996fb92427ae41e46\",\"profileId\":\"agt_fixtureprofile000000000001\",\"template\":\"assistant\",\"ownerBound\":true,\"createdUnix\":1791000001,\"updatedUnix\":1791000002}}",
+      "expect": {
+        "kind": "uncertain",
+        "reason": "RESPONSE_INVALID"
+      }
+    }
+  ]
+}

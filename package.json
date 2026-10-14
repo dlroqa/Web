@@ -16,7 +16,8 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:staging": "wrangler d1 migrations apply DB --env staging --remote",
     "operator": "esbuild src/operator/main.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=node_modules/.cache/lightagent/operator.mjs && node node_modules/.cache/lightagent/operator.mjs",
-    "auth:schema": "esbuild scripts/auth-schema.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=node_modules/.cache/lightagent/auth-schema.mjs && node node_modules/.cache/lightagent/auth-schema.mjs"
+    "auth:schema": "esbuild scripts/auth-schema.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=node_modules/.cache/lightagent/auth-schema.mjs && node node_modules/.cache/lightagent/auth-schema.mjs",
+    "protocol:fixtures": "esbuild scripts/provisioning-fixtures.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=node_modules/.cache/lightagent/provisioning-fixtures.mjs && node node_modules/.cache/lightagent/provisioning-fixtures.mjs"
   },
   "dependencies": {
     "@better-auth/passkey": "1.7.7",

@@ -203,6 +203,13 @@ per profile and rejects lower ones.
 
 Revocation never relies on the browser discarding something.
 
+For **provisioning**, [PROVISIONING_PROTOCOL.md](PROVISIONING_PROTOCOL.md)
+(`LA-WEB-PROVISIONING/1`) supersedes the harness column above: v1 has no
+`profile.disable`/`profile.enable` and carries no `revocationVersion`.
+Harness access is removed by an irreversible `profile.revoke` of the
+create operation (§13.5 there). `revocation_version` remains a Web-side
+value for the future invocation path.
+
 ## 9. Version 1 obligations
 
 Version 1 does not ship invocation, but it must:

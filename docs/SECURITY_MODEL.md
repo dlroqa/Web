@@ -2,7 +2,8 @@
 
 This document describes the controls implemented in the control-plane Worker.
 Agent access rules are in [AGENT_ACCESS_CONTROL.md](AGENT_ACCESS_CONTROL.md);
-the signed provisioning protocol will be in `PROVISIONING_PROTOCOL.md`.
+the signed provisioning protocol is [PROVISIONING_PROTOCOL.md](PROVISIONING_PROTOCOL.md)
+(`LA-WEB-PROVISIONING/1`, candidate; not implemented in the Worker).
 
 Status: Phase 4.5 (authentication hardening). Provisioning is not implemented yet.
 Authentication details: [AUTHENTICATION.md](AUTHENTICATION.md).

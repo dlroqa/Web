@@ -1,0 +1,548 @@
+{
+  "protocol": "LA-WEB-PROVISIONING/1",
+  "fixtureSet": "la-web-provisioning-1/r2",
+  "kind": "create-resolution",
+  "description": "What Web may conclude about one profile.create job from all its transmissions (§13.2). Times are Web-clock Unix seconds.",
+  "acceptanceHorizonSeconds": 60,
+  "cases": [
+    {
+      "id": "no-transmission",
+      "description": "Nothing sent yet.",
+      "transmissions": [],
+      "expect": {
+        "status": "unresolved"
+      }
+    },
+    {
+      "id": "single-completed",
+      "description": "First transmission returns a completed operation.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "operation",
+            "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "state": "completed"
+          }
+        }
+      ],
+      "expect": {
+        "status": "resolved",
+        "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "state": "completed"
+      }
+    },
+    {
+      "id": "timeout-then-operation",
+      "description": "Timeout, then the same key returns the operation.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "operation",
+            "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "state": "completed"
+          }
+        }
+      ],
+      "expect": {
+        "status": "resolved",
+        "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "state": "completed"
+      }
+    },
+    {
+      "id": "timeouts-exhausted",
+      "description": "Ten timeouts: still unresolved, never failed.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000060,
+          "expiresAt": 1791000120,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000090,
+          "expiresAt": 1791000150,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000150,
+          "expiresAt": 1791000210,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000180,
+          "expiresAt": 1791000240,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000210,
+          "expiresAt": 1791000270,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000240,
+          "expiresAt": 1791000300,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000270,
+          "expiresAt": 1791000330,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      }
+    },
+    {
+      "id": "replay-detected-only",
+      "description": "Only a REPLAY_DETECTED answer (indeterminate).",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      }
+    },
+    {
+      "id": "single-merits-refusal",
+      "description": "Only transmission refused with PROFILE_UNAVAILABLE.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "refused",
+            "code": "PROFILE_UNAVAILABLE"
+          }
+        }
+      ],
+      "expect": {
+        "status": "failed",
+        "code": "PROFILE_UNAVAILABLE"
+      }
+    },
+    {
+      "id": "single-admission-refusal",
+      "description": "Only transmission refused with UNAUTHENTICATED.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "refused",
+            "code": "UNAUTHENTICATED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "failed",
+        "code": "UNAUTHENTICATED"
+      }
+    },
+    {
+      "id": "timeout-then-merits-too-early",
+      "description": "Timeout, then QUOTA_EXCEEDED sent before the first copy's horizon.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "refused",
+            "code": "QUOTA_EXCEEDED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      }
+    },
+    {
+      "id": "timeout-then-merits-after-horizon",
+      "description": "Timeout, then QUOTA_EXCEEDED sent after the first copy's horizon.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "refused",
+            "code": "QUOTA_EXCEEDED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "failed",
+        "code": "QUOTA_EXCEEDED"
+      }
+    },
+    {
+      "id": "lock-wait-horizon-minus-one",
+      "description": "Timeout, then QUOTA_EXCEEDED issued one second before the horizon: the first copy may still start under the lock.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000119,
+          "expiresAt": 1791000179,
+          "outcome": {
+            "kind": "refused",
+            "code": "QUOTA_EXCEEDED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      }
+    },
+    {
+      "id": "lock-wait-horizon-exact",
+      "description": "Timeout, then QUOTA_EXCEEDED issued exactly at the horizon: safe only because §10 step 14 refuses the first copy if it reaches the lock later.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "refused",
+            "code": "QUOTA_EXCEEDED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "failed",
+        "code": "QUOTA_EXCEEDED"
+      }
+    },
+    {
+      "id": "expired-at-execution-then-operation",
+      "description": "Timeout, EXPIRED at execution, then a fresh transmission returns the committed operation.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "refused",
+            "code": "EXPIRED"
+          }
+        },
+        {
+          "issuedAt": 1791000060,
+          "expiresAt": 1791000120,
+          "outcome": {
+            "kind": "operation",
+            "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "state": "completed"
+          }
+        }
+      ],
+      "expect": {
+        "status": "resolved",
+        "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "state": "completed"
+      }
+    },
+    {
+      "id": "expired-at-execution-after-uncertain",
+      "description": "Timeout, then EXPIRED (protocol class): proves nothing about the first copy.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "refused",
+            "code": "EXPIRED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      }
+    },
+    {
+      "id": "timeout-then-admission-after-horizon",
+      "description": "Timeout, then UNAUTHENTICATED: admission happens before the idempotency lookup, so it proves nothing.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "refused",
+            "code": "UNAUTHENTICATED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      }
+    },
+    {
+      "id": "timeout-then-protocol-after-horizon",
+      "description": "Timeout, then BAD_SIGNATURE: a per-transmission refusal proves nothing.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "refused",
+            "code": "BAD_SIGNATURE"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      }
+    },
+    {
+      "id": "timeout-then-payload-refusal",
+      "description": "Timeout, then INVALID_DISPLAY_NAME: the same payload can never succeed.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "refused",
+            "code": "INVALID_DISPLAY_NAME"
+          }
+        }
+      ],
+      "expect": {
+        "status": "failed",
+        "code": "INVALID_DISPLAY_NAME"
+      }
+    },
+    {
+      "id": "operation-failed",
+      "description": "Timeout, then an operation in state failed (definitive).",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "operation",
+            "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "state": "failed"
+          }
+        }
+      ],
+      "expect": {
+        "status": "resolved",
+        "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "state": "failed"
+      }
+    },
+    {
+      "id": "elapsed-time-alone",
+      "description": "One uncertain transmission and a day of silence: elapsed time alone never resolves a create.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      }
+    },
+    {
+      "id": "operation-revoked-replay",
+      "description": "Redelivery after revocation returns the revoked operation (S1).",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "operation",
+            "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "state": "revoked"
+          }
+        }
+      ],
+      "expect": {
+        "status": "resolved",
+        "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "state": "revoked"
+      }
+    },
+    {
+      "id": "idempotency-conflict",
+      "description": "IDEMPOTENCY_CONFLICT is a Web defect, never a failure.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "refused",
+            "code": "IDEMPOTENCY_CONFLICT"
+          }
+        }
+      ],
+      "expect": {
+        "status": "attention",
+        "code": "IDEMPOTENCY_CONFLICT"
+      }
+    },
+    {
+      "id": "operation-mismatch",
+      "description": "Two different operation ids for one key.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "operation",
+            "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "state": "completed"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "operation",
+            "operationId": "ffffffffffffffffffffffffffffffff",
+            "state": "completed"
+          }
+        }
+      ],
+      "expect": {
+        "status": "attention",
+        "code": "OPERATION_MISMATCH"
+      }
+    }
+  ]
+}
