@@ -22,15 +22,17 @@ the same revision, digest and candidate commit. Until then it is a
 | Field | Value |
 |---|---|
 | Revision | `la-web-provisioning-1/r2` |
-| Compatibility digest | recorded with the candidate commit in the metadata commit that follows it |
-| Candidate commit (Web) | recorded in the metadata commit that follows it |
+| Compatibility digest | `8649b453d55013cc5d35ed81bc052d219c4afd56eec0d031798f680923248b9a` |
+| Candidate commit (Web) | `d31e544968447c3f7901f004321c20983e879267` (parent `775c7c7`) |
+| Fixture digest | `49c28a8b49d8c4b0d01ff7cd89df48fe2536ca68faee9dbbddd9df842ac51f55` |
+| Specification SHA-256 | `9c92514d1a5f53c450887c48ccdeb594cd253485253016e14850a3e0b8e1efef` |
 | Web branch | `l0/la-web-provisioning-r2` (local; the Web repository has no remote) |
 
 ## Acceptance
 
 | Side | Revision | Compatibility digest | Candidate commit | Reviewer | Date | Verdict |
 |---|---|---|---|---|---|---|
-| Web (`lightagent-control`) | r2 | | | | | candidate, not accepted |
+| Web (`lightagent-control`) | r2 | `8649b453d55013cc5d35ed81bc052d219c4afd56eec0d031798f680923248b9a` | `d31e544968447c3f7901f004321c20983e879267` | | 2026-10-13 | proposed candidate; awaiting Lightagent |
 | Lightagent | r2 | | | | | not yet reviewed |
 
 ## History
