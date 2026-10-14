@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r3",
+  "fixtureSet": "la-web-provisioning-1/r4",
   "kind": "commands-invalid",
   "description": "Commands every verifier must refuse with exactly the listed code.",
   "howToRun": "For each vector: build the verifier state named by `verifier` from keys.json, set its clock to `now` and its recorded nonces to `seenNonces`, then verify the bytes of `bodyHex`. The result must be `expect` exactly (ok, or the first failing error code in §10 order).",

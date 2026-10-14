@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Protocol identifier | `LA-WEB-PROVISIONING/1` |
-| Revision | `la-web-provisioning-1/r3` (changes: §18) |
+| Revision | `la-web-provisioning-1/r4` (changes: §18) |
 | Status | **Candidate.** It is not frozen until Web and Lightagent both record acceptance of the same compatibility digest in `protocol/la-web-provisioning-1/ACCEPTANCE.md`. |
 | Owner | Web (`lightagent-control`). Lightagent mirrors a byte-identical copy. |
 | Fixtures | `protocol/la-web-provisioning-1/` (listed in `MANIFEST.json`) |
@@ -495,7 +495,7 @@ happen before step 14 passes.
 | 10 | `keyId` is trusted and not revoked (§6.4) | `UNKNOWN_KEY`, `KEY_REVOKED` |
 | 11 | `S < L`, and Ed25519 verifies `signature` over `signingInput` (§6) | `BAD_SIGNATURE` |
 | 12 | `audience` equals this harness id; time window (§9.3); nonce recorded once (§9.2) | `WRONG_AUDIENCE`; `NOT_YET_VALID`, `EXPIRED`; `REPLAY_DETECTED`, `NONCE_STORE_UNAVAILABLE` |
-| 13 | Acquire the provisioning ledger lock (PR #26 `exclusive`: in-process mutex, then the cross-process file lock). The wait is unbounded | — |
+| 13 | Acquire the provisioning ledger lock (PR #26 `exclusive`: in-process mutex, then the cross-process file lock). The wait is unbounded. Then re-check the ledger's harness-id stamp and retirement (§10.6 C1, r4). While the start-up continuity check fails, the gateway answers every request with this code before step 1, with `commandId` null | `LEDGER_CONTINUITY_FAILED` |
 | 14 | **Execution deadline** (`profile.create`): while holding the lock, read the durable fence `F` and re-read the harness clock. Refuse with no effect if `now ≥ expiresAt + 30` **or** `expiresAt + 30 ≤ F` (§10.4 P1, §10.5) | `EXPIRED` |
 | 15 | **Local admission** (§10.2), under the lock. For `profile.create`, on success set `F := max(F, issuedAt − 30)`, durable before the lock is released (§10.5) | §11 admission codes |
 | 16 | Execute through `ProvisioningService` (§10.3), under the lock | §11 payload, merits, operation, conflict and indeterminate codes, or an operation response |
@@ -519,6 +519,29 @@ unexpired and not rotated away; its role is `operator`; its restriction is
 provisioner registration exists. If the operator revokes that credential, the
 next command is refused even with a valid signature. A `keyId` with no
 mapping is `UNAUTHENTICATED`.
+
+**Where each authentication decision is made (r4 clarification).** This
+order fixes which refusals are `final` (§11):
+
+| Step | Decision | Refusal | `createResolution` |
+|---|---|---|---|
+| 10 | `keyId` is in the harness's trusted-key list and is not revoked. A key revocation takes effect here, before any credential lookup | `UNKNOWN_KEY`, `KEY_REVOKED` | transmission-only |
+| 11 | Ed25519 signature over the signing input, with `S < L` | `BAD_SIGNATURE` | transmission-only |
+| 12 | Audience, time window, then the nonce recorded durably (§9.2) | `WRONG_AUDIENCE`, `NOT_YET_VALID`, `EXPIRED`, `REPLAY_DETECTED`, `NONCE_STORE_UNAVAILABLE` | transmission-only, or indeterminate for `REPLAY_DETECTED` |
+| 13–14 | Lock, execution deadline and fence (§10.5), and the ledger continuity stamp (§10.6 C1) | `EXPIRED`, `LEDGER_CONTINUITY_FAILED` | transmission-only |
+| 15 | **Only now** resolve the `keyId` → local provisioning credential mapping, build the `Caller` with `caller_for_at`, and run `admit` | `UNAUTHENTICATED`, `NOT_A_PROVISIONER`, `CREDENTIAL_NOT_PROVISIONING_ONLY`, `PROVISIONER_INACTIVE`, `PROVISIONER_REVOKED`, `PROFILE_OUTSIDE_CREDENTIAL` | final |
+| 16 | Issuer and template authorization, quota and profile checks (`begin`), and operation scope for status and revoke | `ISSUER_NOT_ALLOWED`, … (merits), `UNKNOWN_OPERATION` | final / operation |
+
+- The mapping MUST NOT be resolved, and `UNAUTHENTICATED` MUST NOT be
+  answered, before the nonce is durably recorded. Resolving it at step 10
+  would turn a missing or revoked mapping into a pre-nonce refusal labelled
+  `final`, which a later copy could contradict.
+- Resolving the mapping late bypasses nothing:
+  - steps 10–12 still verify the trusted key, its revocation, the signature,
+    the audience, freshness and the replay record first;
+  - a signature without a mapping still grants nothing;
+  - issuer authorization and operation scope remain PR #26's checks at
+    steps 15–16.
 
 The signing key reaches no run, session, tool, settings, Jev or
 administration route. PR #26 tests this route by route
@@ -554,20 +577,23 @@ protocol change.
 | P5 | **Status is read-only.** `profile.status` reports the recorded state and current ownership. It never advances, resumes or completes an operation. Recovery of an interrupted create is a resend (§13.3 R4) or an operator `reconcile` | yes: `status` calls only `status_of` |
 | P6 | **Execution fence (r3).** One durable, non-decreasing fence per harness ledger, checked at step 14 and advanced after step 15 for every admitted create, with the advance durable before the ledger lock is released (§10.5) | **missing**: one integer in the ledger state, in the same L3 entry point as P1 |
 | P7 | **Durable nonces (r3).** Nonce records are atomic across gateway processes, durable before the command proceeds or is answered, survive restarts, and are discarded only once the fence excludes them (§9.2) | not applicable: the nonce ledger is new in the L2 gateway |
+| P8 | **Ledger continuity (r4).** The gateway serves only a ledger that an operator explicitly initialized for this harness id, and that passes the §10.6 C1–C3 check at start and activation. C1 is also checked under the lock for every command. Otherwise every command is answered `LEDGER_CONTINUITY_FAILED` | **missing**: PR #26 creates its ledger lazily and records no harness id. Required L1 change (§16.2) |
 
 `profile.status` and `profile.revoke` need no execution deadline. A late
 status is a read. A late revoke only removes a binding that Web asked to
 remove, and it is idempotent. A harness MAY apply step 14 to them as well.
 
 Web MUST NOT register a harness for v1 provisioning unless it conforms to
-P1–P7. Conformance is shown by:
+P1–P8. Conformance is shown by:
 
 - `execution-deadline.json`, including the fence cases;
 - `ordering-model.json`;
 - Lightagent's L3 tests, including the lock-wait race with a clock step, and
   a duplicate of a refused command across a restart.
 
-Against a harness without P1, P6 or P7, §13.2 R3 is unsound
+- `ledger-continuity.json`.
+
+Against a harness without P1, P6, P7 or P8, §13.2 R3 is unsound
 (§13.2.2).
 
 ### 10.5 Execution fence (RC5)
@@ -581,7 +607,7 @@ Against a harness without P1, P6 or P7, §13.2 R3 is unsound
 | Order under the lock | acquire lock → read `F` → step 14 (clock and fence) → step 15 admission → advance and persist `F` → idempotency lookup, `begin`, record, materialize, bind → release lock |
 | Status, revoke | They do not advance the fence. They MAY apply the step-14 checks |
 | Crash | If the process dies before the advance is durable, that create's answer was never released, so Web holds it as uncertain and relies on nothing. If it dies after, the durable value stands |
-| Restore or new ledger | The fence MUST NOT go down. After restoring the ledger or nonce state from a backup, or after initializing a new ledger for an existing harness id, the harness sets `F := max(F_restored, T + 150)` before serving, where `T` is an operator-verified current time. This excludes every command issued before `T`, because `expiresAt + 30 ≤ T + 150`. Commands Web issues in the following 60–120 s are refused `EXPIRED` and retried |
+| Restore (r4, corrected) | A restore brings back the provisioning ledger (operations, idempotency keys, fence, harness-id stamp), the nonce store, the identity store and the profile store **together, from one mutually consistent recovery point** (A9, §10.6). It then sets `F := max(F_restored, T + 150)` before serving, where `T` is an operator-verified current time: this excludes every command issued before `T`, because `expiresAt + 30 ≤ T + 150`, and Web's commands in the next 60–120 s are refused `EXPIRED` and retried. A partial restore of only the nonce store or only the fence is not a sanctioned procedure (A9); if one happens anyway, the raise still excludes every earlier command (`nonces-restored-alone`, `fence-restored-alone`). **A harness id's ledger is never initialized anew, and never restored alone, while identity or profile state survives** (`fresh-ledger-retained-identity`). If the ledger cannot be restored consistently, the harness id is retired (§10.6). r3 permitted "initializing a new ledger for an existing harness id" with only the fence raise. That was unsafe (Lightagent PR #28, RC7) |
 | Locks | `F` is read and written only under the provisioning ledger lock, the same lock as P2. Nonce discards that raise `F` (§9.2) also take that lock |
 | Key rotation | Adding, rotating, revoking or removing trusted keys never changes `F` |
 | Controller registration | Registering or withdrawing a provisioner, rotating its local credential, or changing the `keyId` → credential mapping never changes `F`. Only replacing the ledger triggers the restore rule |
@@ -607,6 +633,79 @@ A narrower fence is permitted only if it is at least as strict for every
 command of the job (same profile and key), and if the §9.2 discard rule
 raises the matching fence.
 
+### 10.6 Ledger continuity and harness retirement (RC7)
+
+**Relationships.** A9 (§13.2.1) binds these together:
+
+| Element | Relationship |
+|---|---|
+| Harness identity (`hns_…`) | Exactly one provisioning ledger (A1). The ledger is **stamped** with the harness id when an operator explicitly initializes it, and is never created implicitly |
+| Provisioning ledger | Holds the operations (operation ids, states, idempotency keys scoped to the provisioner), the execution fence, and the harness-id stamp. It is the only authority for "which operation does this key have" (P3) |
+| Identity store | Holds ownership bindings and their provisioning transaction records (`provisioning:<operationId>`), written by the bind step of an operation the ledger recorded first |
+| Profile store | Holds the profile directories and their `.provisioning-operation` markers, which name the operation that created each |
+| Nonce store | Records commands by nonce. Its records must not be older than the fence that would exclude them (§9.2) |
+| Execution fence | Never lower than the `issuedAt − 30` of any create that the ledger's operations reflect. Never lowered by a recovery (§10.5) |
+| Operation ids and idempotency keys | Unique for the life of a harness id. A key resolves to the same operation forever (S1). A new ledger forgets keys, so it cannot keep S1 or P3 |
+| Ownership bindings | Exist only as effects of ledger operations (or of operator actions, which `ownerBound` reports, §13.1). A binding without its operation is the RC7 hazard |
+
+**Continuity check (P8).** The check below runs at gateway start, at
+activation, and after any restore. C1 is also re-checked under the ledger
+lock for every command. Reference: `checkLedgerContinuity`. Fixtures:
+`ledger-continuity.json`.
+
+| # | Condition | Failure |
+|---|---|---|
+| C1 | A ledger exists, stamped with the configured harness id, and not marked retired | `NO_LEDGER`, `UNSTAMPED_LEDGER`, `HARNESS_ID_MISMATCH`, `RETIRED` |
+| C2 | Every operation id named by an identity provisioning record or a profile marker exists in the ledger | `LEDGER_BEHIND_STORES` (a fresh or older ledger beside surviving bindings) |
+| C3 | Every ledger operation in state `completed` or `revoked` has its identity provisioning record | `STORES_BEHIND_LEDGER` (an identity store that is older, replaced or new) |
+
+- **Absence is never a clean state.** A missing ledger, an unstamped one, or
+  a new, empty identity store fails closed, even when no records exist at
+  all. Only an explicit operator initialization establishes a new harness id,
+  and it is permitted only for an id that Web has never had registered.
+- **Fail-closed behaviour.** While the check fails, the gateway answers every
+  command `503 LEDGER_CONTINUITY_FAILED` before parsing it (`commandId` is
+  null), and changes nothing. In particular it never re-creates, re-binds,
+  re-assigns or deletes a profile or binding.
+- **Limitation.** PR #26's stores carry no generation marker. C2 and C3 rely
+  on the operation ids that PR #26 already writes, as identity transaction
+  keys and profile markers. Lightagent's L1 work MUST confirm that those
+  records are retained for the life of the harness id, and are not pruned. If
+  they could be pruned, L1 MUST add a durable generation marker, written to
+  all three stores at initialization, before activation.
+- **What no check can detect.** If every store is wiped together, nothing
+  survives to be bound to, and invariant S holds. Web then sees
+  `UNKNOWN_OPERATION` for operations it knew (needs attention, §13.4). Two
+  live copies of one ledger (a cloned VM) remain excluded only by A1.
+
+**Retirement.** If the provisioning history of a harness id is irretrievably
+lost while profiles or bindings may survive:
+
+1. The harness operator **retires** the id: the ledger is marked retired, or
+   removed, and the gateway fails closed through C1. Nothing on the harness
+   is re-created, re-assigned or deleted by provisioning.
+2. **Web learns it in two ways**:
+   - automatically, from the first `LEDGER_CONTINUITY_FAILED` answer: the
+     harness is circuit-broken in Web, no new operation is sent to it, and
+     operator attention is raised;
+   - authoritatively, from the administrator's registry change: the
+     `harnesses` row leaves `active` (it becomes `disabled`, and a later
+     migration adds a retirement record).
+
+   Web never depends on someone noticing a missing file.
+3. Web sends nothing more to a retired harness id. Unresolved creates on it
+   stay unresolved, flagged `LEDGER_CONTINUITY_FAILED` or
+   `PROFILE_UNAVAILABLE_WHILE_OPEN`, never `failed` (§13.2 R3a). The
+   reconciliation plan is `operator-attention` (`planReconciliation(…,
+   "retired")`). Web never revokes, re-creates or migrates them on its own.
+4. A replacement harness gets a **new** harness id, through explicit operator
+   registration, with a documented migration or recovery decision for every
+   profile of the retired id. Web never resends a retired id's create to the
+   new id: the new ledger does not know the key, so it would create a second
+   profile and binding.
+5. Operation ids, ownership and idempotency semantics are unchanged.
+   Retirement only stops new provisioning on the old id.
+
 ## 11. Errors
 
 Codes are uppercase `[A-Z0-9_]{1,64}`, so they fit
@@ -615,7 +714,7 @@ class and applicable operations, is `errors.json`. It is normative.
 
 | Class | Meaning for Web | Codes (HTTP) |
 |---|---|---|
-| `protocol` | Refused before any side effect (`EXPIRED` at step 12 or step 14). Says nothing about *other* transmissions | `METHOD_NOT_ALLOWED` 405, `UNSUPPORTED_MEDIA_TYPE` 415, `PAYLOAD_TOO_LARGE` 413, `MALFORMED_JSON` `DUPLICATE_KEY` `INVALID_JSON_VALUE` `INVALID_ENVELOPE` `UNSUPPORTED_PROTOCOL` `UNKNOWN_FIELD` `MISSING_FIELD` `WRONG_PURPOSE` `UNSUPPORTED_OPERATION` `INVALID_FIELD` `INVALID_LIFETIME` `NON_CANONICAL` 400, `UNKNOWN_KEY` `KEY_REVOKED` `BAD_SIGNATURE` `NOT_YET_VALID` `EXPIRED` 401, `WRONG_AUDIENCE` 403, `NONCE_STORE_UNAVAILABLE` 503 |
+| `protocol` | Refused before any side effect (`EXPIRED` at step 12 or step 14). Says nothing about *other* transmissions | `METHOD_NOT_ALLOWED` 405, `UNSUPPORTED_MEDIA_TYPE` 415, `PAYLOAD_TOO_LARGE` 413, `MALFORMED_JSON` `DUPLICATE_KEY` `INVALID_JSON_VALUE` `INVALID_ENVELOPE` `UNSUPPORTED_PROTOCOL` `UNKNOWN_FIELD` `MISSING_FIELD` `WRONG_PURPOSE` `UNSUPPORTED_OPERATION` `INVALID_FIELD` `INVALID_LIFETIME` `NON_CANONICAL` 400, `UNKNOWN_KEY` `KEY_REVOKED` `BAD_SIGNATURE` `NOT_YET_VALID` `EXPIRED` 401, `WRONG_AUDIENCE` 403, `NONCE_STORE_UNAVAILABLE` `LEDGER_CONTINUITY_FAILED` 503 |
 | `payload` | Deterministic in the payload: the same payload can never succeed | `INVALID_PROFILE_ID` `RESERVED_PROFILE_ID` `INVALID_ISSUER` `INVALID_SUBJECT` `INVALID_DISPLAY_NAME` `INVALID_TEMPLATE` `INVALID_IDEMPOTENCY_KEY` `INVALID_OPERATION_ID` 400 |
 | `admission` | Local authority refused **before** the idempotency lookup. State-dependent | `UNAUTHENTICATED` 401, `NOT_A_PROVISIONER` `CREDENTIAL_NOT_PROVISIONING_ONLY` `PROVISIONER_INACTIVE` `PROVISIONER_REVOKED` `PROFILE_OUTSIDE_CREDENTIAL` 403 |
 | `merits` | create only. Refused **after** the idempotency lookup, so at that moment no operation existed for this key | `ISSUER_NOT_ALLOWED` `TEMPLATE_NOT_ALLOWED` `QUOTA_EXCEEDED` `LEDGER_FULL` 403, `PROFILE_UNAVAILABLE` `PRINCIPAL_INACTIVE` `EXTERNAL_IDENTITY_CONFLICT` 409 |
@@ -916,6 +1015,20 @@ Reference: `resolveCreateJob`. Fixtures: `create-resolution.json` and
     `t.issuedAt ≥ u.expiresAt + 60` (`u`'s acceptance horizon).
   - If no transmission is open (every one was refused `final`), nothing
     exists, and the job is `failed` with the latest code.
+  - `PROFILE_UNAVAILABLE` never rules out an open transmission (R3a below).
+- **R3a (r4). Signs of ledger discontinuity are never evidence.**
+  - **`PROFILE_UNAVAILABLE` while open.** If a job has any open transmission
+    and any transmission was refused `PROFILE_UNAVAILABLE`, the job needs
+    attention (`PROFILE_UNAVAILABLE_WHILE_OPEN`). It is never `failed`. Under
+    A9, a resend of the same key cannot get `PROFILE_UNAVAILABLE` for an `agt_`
+    id that only this job uses. Getting one means the ledger may have
+    forgotten an operation whose binding survives (RC7).
+  - **`LEDGER_CONTINUITY_FAILED`.** Any transmission refused with this code
+    makes an otherwise unresolved job need attention
+    (`LEDGER_CONTINUITY_FAILED`, §10.6).
+  - **Defence in depth.** R3a is a backstop for the harness check. A fresh
+    ledger that answers on quota (`QUOTA_EXCEEDED`) is caught only by P8
+    (`fresh-ledger-quota-refusal`).
 - Otherwise the job is **unresolved**. `IDEMPOTENCY_CONFLICT` and unknown
   codes are anomalies (`needs attention`), never failures.
 
@@ -948,6 +1061,7 @@ Assumptions. Each one is a normative requirement elsewhere in this document:
 | A6 | Journal: every transmission that can reach the harness is journaled before it is sent; rows are never deleted; recorded answers are final | §13.10 |
 | A7 | Truthful classification: an answer that Web classifies as an operation or a refusal was produced by the harness for that transmission (authenticated HTTPS plus correlation). Forged answers are outside S | §12.1, §12.5 |
 | A8 | Only this job uses its idempotency key (unique in D1), and the §8 validation rules do not change within a revision | §9.1, D1 |
+| A9 | **Provisioning ledger continuity.** For an existing harness identity, the provisioning operation history (operations, idempotency keys, fence, nonce records) remains consistent with the identity bindings and profile state it governs. The harness never begins with an empty or replacement ledger while bindings made through the old one remain valid. Ledger, nonce store, fence, identity store and profile store are restored only together, from one mutually consistent recovery point. A ledger whose continuity cannot be established fails closed (P8), and its harness id is retired. A new ledger is never evidence that past operations did not happen | §10.5, §10.6, P8 |
 
 **Not assumed:**
 
@@ -975,6 +1089,12 @@ transmission `x`, no copy of `x` ever records an operation.
    step 14 refuses every copy with no effect.
 5. `payload` refusals are deterministic in the payload, which every copy and
    every transmission of the job share (§9.1, A8). □
+
+A9 is what makes P3 hold *across time* for a harness id: "every later
+lookup sees every operation an earlier call started" assumes that the ledger
+which recorded `u`'s operation is the one that `t` reads. RC7 is exactly a
+violation of this. A fresh ledger answered `t` on the merits while `u`'s
+binding survived in the identity store.
 
 **Lemma 2 (exclusion by a later merits refusal).** If transmission `t` was
 refused on the merits and `t.issuedAt ≥ u.expiresAt + 60`, no copy of `u`
@@ -1024,6 +1144,11 @@ removed. `unsafe` means Web concluded `failed` while an operation exists.
 | `duplicate-after-clock-purge-and-rollback` | r2, review proposal, r3 discarding nonces by clock | discard only when fenced (A5). **New in r3** |
 | `pre-nonce-refusal-then-duplicate` | r2, review proposal, r3 treating protocol refusals as final | `transmission-only` refusals (§11). **New in r3** |
 | `unjournaled-transmission` (the review's RC6 case) | r2, r3 without journal | write-before-send journal (A6) |
+| `fresh-ledger-retained-identity` (the review's RC7 case) | r2, review proposal, r3 and every r3 ablation | ledger continuity (A9, P8) **and** R3a, each sufficient alone here |
+| `fresh-ledger-quota-refusal` | r2, review proposal, r3, r4 without the continuity check | P8 only. R3a cannot see a `QUOTA_EXCEEDED` from a fresh ledger |
+| `ledger-restored-older-than-identity` | as `fresh-ledger-retained-identity` | as above |
+| `nonces-restored-alone`, `fence-restored-alone` | r2, review proposal, r3 without fence, r4 without the restore's fence raise | `F := max(F_restored, T + 150)` (§10.5) |
+| `identity-restored-older-than-ledger`, `consistent-restore-of-all-stores` | none (r4 fails closed on the former until an operator reconciles) | — |
 | `crash-after-record-restart-resend`, `maximum-skew-no-step`, `completion-after-expiry`, `overlapping-windows-out-of-order` | none | (liveness and positive cases) |
 
 #### 13.2.3 Test evidence
@@ -1044,18 +1169,28 @@ not replace it.
   - lock-wait with a backward step around a refusal at the horizon;
   - a duplicate of a refused command across a restart, and across a clock
     jump with a purge.
+- **Recovery schedules (r4).** Seed `0x0a900004`, 25,000 schedules:
+  - u completes, crashes after record, or is refused, sometimes with a
+    duplicate copy;
+  - one recovery restores a random non-empty subset of {ledger, identity,
+    nonces, fence}, the fence to 0 or an older value;
+  - a clock offset of ±30 s with up to one step of ±60 s;
+  - 1–3 resends at or after the horizon, and quota windows.
 - **Results.**
-  - r3 is unsafe in 0 schedules.
-  - r3 without the wall-clock check is also unsafe in 0.
-  - Every other rule set and every ablation has counterexamples in its
-    family.
-  - The exact counts are printed by the test and listed in §18.
+  - r4 is unsafe in 0 schedules in every family.
+  - In the recovery family, r3 is unsafe in 2,475 schedules, and r4 without
+    the continuity check in 786.
+  - Outside recoveries, r3 and r4 behave identically (0 unsafe).
+  - Every other rule set and ablation has counterexamples, in its family or
+    in the deterministic fixtures.
+  - The exact counts are in §18.
 
 `tests/contracts/provisioning-journal.test.ts` checks the §13.10 journal on
 real D1.
 
 **Not modelled:** forged answers (§12.1), a compromised harness, two ledgers
-behind one harness id (A1), and Web clock errors. Web clock errors do not
+behind one harness id (A1), operator reassignment during recovery, and Web
+clock errors. Web clock errors do not
 affect S, because the proof uses only Web's signed stamps; they can only cost
 liveness (§10.5).
 
@@ -1258,6 +1393,32 @@ migration 0003 or later**. 0001 and 0002 are never edited.
   reasoned over, and the harness's idempotency makes them one operation. The
   lease is an efficiency measure. **Safety rests on J, not on the lease.**
 
+**Primary-consistent reconciliation (r4 clarification).** When D1 read
+replication is enabled, a replica may lag the primary. Any read that can lead
+to a `failed` conclusion, or that decides whether every potentially delivered
+transmission is accounted for, MUST be primary-consistent:
+
+- run it in a D1 session started with `first-primary`;
+- or run it in a session that continues from the bookmark of the journal
+  write it must observe;
+- or run it in the same batch as that write.
+
+It MUST NOT use an unconstrained replica read. A stale journal could omit a
+row and break A6. Reads that only drive retries or display are not
+restricted.
+
+The later Web implementation (migration 0003 or later, not part of L0)
+therefore provides:
+
+1. durable journal insertion before network delivery (invariant J);
+2. transactionally safe delivery claiming (one batch: lease and insert);
+3. conservative treatment of uncertain transmissions (journaled without an
+   answer is uncertain);
+4. primary-consistent reconciliation reads;
+5. an immutable logical command identity (the payload-hash trigger);
+6. no definitive failure while provisioning history may be unresolved
+   (§13.2 R3 and R3a, and the retired-harness plan of §10.6).
+
 Reference: `tests/contracts/provisioning/journal.ts`, test-only and not a
 migration. It runs on real D1 in workerd
 (`provisioning-journal.test.ts`), covering each of these:
@@ -1301,7 +1462,8 @@ migration. It runs on real D1 in workerd
 | `responses.json` | Response bodies and Web's expected classification |
 | `create-resolution.json` | R1–R3 decision cases, including the horizon boundary (±1 s), `EXPIRED` at execution, elapsed time alone, `transmission-only` refusals (r3), and the reconciliation plan (`send-create`, `revoke`, `confirm-status`, `operator-attention`, `none`) for desired present and absent |
 | `execution-deadline.json` | §10 step 14: single checks, each with `fence` (0 for the r2 cases; r3 adds fence = deadline → refuse, fence = deadline − 1 → proceed, and a clock rolled back below a raised fence), and the r2 race scenarios with and without step 14 (clock never steps) |
-| `ordering-model.json` | r3: the rule sets and the deterministic scenarios of §13.2.2, each evaluated under every rule set (`simulateOrdering`) |
+| `ordering-model.json` | The rule sets (r2, review proposal, r3, r4, and ablations) and the deterministic scenarios of §13.2.2, including the r4 recovery scenarios, each evaluated under every rule set (`simulateOrdering`). Results include the surviving `binding` and whether the gateway `failedClosed` |
+| `ledger-continuity.json` | r4: the §10.6 C1–C3 activation check, 13 cases with the expected verdict and reason |
 | `errors.json` | The normative error registry |
 | `MANIFEST.json` | Protocol, revision, schema ids, fixture ids, specification and file SHA-256 hashes, `fixtureDigest` |
 | `MANIFEST.sha256` | The same hashes in `sha256sum -c` format (run it from the Web repository root) |
@@ -1347,6 +1509,11 @@ migration. It runs on real D1 in workerd
 - A Web implementation additionally passes `responses.json` and
   `create-resolution.json`.
 - An ordering model passes when it reproduces `ordering-model.json`.
+- A harness's continuity check passes when it reproduces
+  `ledger-continuity.json`.
+- `create-resolution.json` `plan` lists the plan for an active harness
+  (`present`, `absent`) and for a retired one (`retiredPresent`,
+  `retiredAbsent`).
 - A harness's L3 tests reproduce the following against the real service:
   - a create blocked on the lock past its deadline, while another call
     holds it, answers `EXPIRED` and records nothing;
@@ -1406,12 +1573,25 @@ migration. It runs on real D1 in workerd
    byte comparison. PR #28's conformance crate already implements these
    offline.
 3. Ed25519 through `ring`, with an explicit `S < L` check.
-4. Fail-closed configuration: own `harnessId`, the trusted-key list,
+4. Fail-closed configuration and **ledger continuity (P8, L1):**
+   - explicit operator initialization stamps the ledger with the harness id,
+     and the ledger is never created lazily;
+   - the §10.6 C1–C3 check runs at start, at activation and after restores,
+     and C1 runs per command under the lock;
+   - while the check fails, the gateway answers `LEDGER_CONTINUITY_FAILED`;
+   - L1 confirms that `provisioning:<op>` identity records and
+     `.provisioning-operation` markers are never pruned, or adds a
+     generation marker;
+   - an operator `retire` marks the ledger retired.
+
+   Also part of this item: the harness's own `harnessId`, the trusted-key list,
    `keyId` → local credential key id (all mapping to one provisioner).
 5. A nonce ledger (§9.2, P7): atomic across gateway processes, durable
    before proceeding or answering, surviving restarts, and discarded only
    once the fence excludes the command (raise the fence first).
-6. The §10.3 adapter: `caller_for_at` with the mapped credential, the
+6. The §10.3 adapter, with the `keyId` → credential mapping resolved at
+   step 15, after the nonce (§10.2 table): `caller_for_at` with the mapped
+   credential, the
    `profileId` consistency check for status and revoke, uppercase code
    mapping, failed operations as `200`/`201` operation responses, and echoes.
 7. Regression tests for S1 and S2 (added as `web_*` tests in PR #28).
@@ -1446,15 +1626,29 @@ Resolved in r3: harness clock steps (RC5, the fence) and write-before-send
 RC5: fence durability before unlock, durable nonces discarded only under the
 fence, and `transmission-only` refusals.
 
+Resolved in r4: ledger continuity (RC7): A9, the corrected §10.5 restore
+rule, §10.6 continuity check and retirement, and R3a. It also clarifies where
+the credential mapping is resolved (§10.2) and requires primary-consistent D1
+reconciliation (§13.10).
+
 Still open:
 
 1. **`profile.lookup`** (§13.9) is deferred, not rejected. It would also
    close the "forged refusal cannot be re-checked" residual risk (§12.1).
 2. **Response signing** is gated, not dropped (§12.1 gates a–c).
-3. **Restores and ledger replacement** must follow the §10.5 restore rule,
-   with an operator-verified time. A restore without it can lower the fence
-   and void S. This is operational, and covered by Lightagent's existing
-   restore procedure (PR #26 §12).
+3. **Restores and ledger replacement (corrected in r4).** r3 claimed this
+   was covered by Lightagent's existing restore procedure (PR #26 §12). **It
+   was not.** PR #26 §12 restores the ledger and the identity store together
+   from one point. It never covered a fresh, empty or replacement ledger
+   beside a retained identity store, and r3 §10.5 permitted exactly that
+   (RC7). This case is now governed by A9, the corrected §10.5 restore row,
+   §10.6 (continuity check C1–C3, fail-closed gateway, retirement), and Web's
+   R3a.
+   - **Residual:** the continuity check relies on PR #26's operation-id
+     records being retained (§10.6 limitation).
+   - **Residual:** a restore still needs an operator-verified time for the
+     fence raise.
+   - **Residual:** cloned live ledgers are excluded only by A1.
 4. **Unsigned responses**: the residual risks listed in §12.1 are accepted
    for v1 only within the §12.5 ingress definition.
 5. **Harness reachability** (direct HTTPS or a §12.5 tunnel) is a deployment
@@ -1465,7 +1659,37 @@ Still open:
 
 ## 18. Revision history
 
-### r3 (this revision)
+### r4 (this revision)
+
+Resolves Lightagent's review of r3 (PR #28 `bcbdcf0`, `l0-protocol-review.md`,
+reviewed digest `bd410d38…4a8d`, candidate `15f196c`). There is no wire
+change: the envelope, signatures, JCS, payloads, response schema, fence,
+nonces, journal, `ownerBound`, `INVALID_TEMPLATE`, NFC and T1–T7 are
+unchanged. Every r3 command, redelivery, response and key vector is
+byte-identical apart from the revision label.
+
+| Item | Change |
+|---|---|
+| RC7 ledger continuity | A9 (§13.2.1). The §10.5 restore row is corrected: one consistent recovery point, never a new or lone ledger for an existing harness id. New §10.6 covers the relationships, the C1–C3 fail-closed check (P8), retirement, and how Web learns it. New registry code `LEDGER_CONTINUITY_FAILED` (`503`, `protocol`, transmission-only) |
+| Web backstop | §13.2 R3a: `PROFILE_UNAVAILABLE` never rules out an open transmission (`PROFILE_UNAVAILABLE_WHILE_OPEN`). `LEDGER_CONTINUITY_FAILED` needs attention. The plan for a retired harness is `operator-attention` |
+| §17 item 3 | Corrected: PR #26 §12 never covered a fresh ledger beside retained identity state |
+| Clarifications | §10.2: authentication-decision order; the credential mapping is resolved at step 15, after the nonce. §13.10: primary-consistent D1 reads, and the six implementation requirements |
+| Fixtures | `ordering-model.json`: rule sets r4 and ablations, `binding` and `failedClosed` results, and 7 recovery scenarios including `fresh-ledger-retained-identity`. `ledger-continuity.json` (new, 13 cases). `create-resolution.json`: 3 cases and retired-harness plans. `errors.json`: the new code |
+
+Randomized results (unsafe schedules per rule set; r3-era counts are
+unchanged):
+
+| Rule set | Broad (`0x7a3c2026`, 30,000) | Lock-wait (`0x5afe0003`, 25,000) | Duplicate (`0x5afe0003`, 25,000) | Recovery (`0x0a900004`, 25,000) |
+|---|---|---|---|---|
+| r4 | 0 | 0 | 0 | 0 |
+| r4 without the continuity check | 0 | 0 | 0 | 786 |
+| r4 with `PROFILE_UNAVAILABLE` ruling out | 0 | 0 | 0 | 0 |
+| r4 without the restore's fence raise | 0 | 0 | 0 | 0 (covered by `nonces-restored-alone` and `fence-restored-alone`) |
+| r3 | 0 | 0 | 0 | 2,475 |
+| r2 | 422 | 1,268 | 25,000 | 2,747 |
+| Review proposal | 133 | 319 | 25,000 | 2,747 |
+
+### r3
 
 Resolves Lightagent's review of r2 (PR #28 `l0-protocol-review.md`, reviewed
 digest `8649b453…b9a`, candidate `d31e544`). Wire format, signatures, JCS,

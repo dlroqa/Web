@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r3",
+  "fixtureSet": "la-web-provisioning-1/r4",
   "kind": "errors",
   "description": "Normative error registry (§11). `lightagent` lists the existing Lightagent codes each maps from; `gateway` marks codes the signed-command gateway introduces.",
   "errors": [
@@ -326,6 +326,21 @@
         "gateway"
       ],
       "createResolution": "transmission-only"
+    },
+    {
+      "code": "LEDGER_CONTINUITY_FAILED",
+      "http": 503,
+      "class": "protocol",
+      "operations": [
+        "profile.create",
+        "profile.status",
+        "profile.revoke"
+      ],
+      "lightagent": [
+        "gateway"
+      ],
+      "createResolution": "transmission-only",
+      "note": "r4 (A9): the gateway fails closed because this harness id is retired or its provisioning ledger's continuity with the identity and profile stores cannot be established (§10.6). Transmission-only: never evidence; Web stops new operations to the harness and raises operator attention."
     },
     {
       "code": "INVALID_PROFILE_ID",

@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r3",
+  "fixtureSet": "la-web-provisioning-1/r4",
   "kind": "execution-deadline",
   "description": "§10 step 14 for profile.create: after acquiring the ledger lock and before the idempotency lookup, the harness refuses EXPIRED when now ≥ expiresAt + 30. `deadlineCases` are single checks; `races` model one harness serving one job (calls serialized by the ledger lock) with and without step 14. `unsafe` means Web concluded failed while an operation exists.",
   "executionDeadlineSeconds": "expiresAt + MAX_CLOCK_SKEW_SECONDS, harness clock read after acquiring the ledger lock",

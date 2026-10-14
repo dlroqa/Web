@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r3",
+  "fixtureSet": "la-web-provisioning-1/r4",
   "kind": "ordering-model",
   "description": "Deterministic ordering scenarios for one harness and one profile.create job (§13.2). Each is evaluated under every rule set in `ruleSets`. `unsafe` means Web concluded failed (`failedAt`) while an operation exists that a transmission issued by then recorded. Times are Unix seconds; deliveries are copies of a transmission reaching the harness.",
   "ruleSets": {
@@ -11,7 +11,10 @@
       "nonceDurable": false,
       "nonceRetainedUntilFenced": false,
       "protocolRefusalsFinal": true,
-      "journalBeforeSend": false
+      "journalBeforeSend": false,
+      "restoreRaisesFence": false,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
     },
     "reviewProposal": {
       "executionDeadline": true,
@@ -20,7 +23,10 @@
       "nonceDurable": false,
       "nonceRetainedUntilFenced": false,
       "protocolRefusalsFinal": true,
-      "journalBeforeSend": true
+      "journalBeforeSend": true,
+      "restoreRaisesFence": false,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
     },
     "r3": {
       "executionDeadline": true,
@@ -29,7 +35,58 @@
       "nonceDurable": true,
       "nonceRetainedUntilFenced": true,
       "protocolRefusalsFinal": false,
-      "journalBeforeSend": true
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
+    },
+    "r4": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": true,
+      "profileUnavailableRulesOut": false
+    },
+    "r4-without-continuity-check": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": false
+    },
+    "r4-profile-unavailable-rules-out": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": true,
+      "profileUnavailableRulesOut": true
+    },
+    "r4-restore-without-fence-raise": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true,
+      "restoreRaisesFence": false,
+      "ledgerContinuityCheck": true,
+      "profileUnavailableRulesOut": false
     },
     "r3-without-wall-clock-deadline": {
       "executionDeadline": false,
@@ -38,7 +95,10 @@
       "nonceDurable": true,
       "nonceRetainedUntilFenced": true,
       "protocolRefusalsFinal": false,
-      "journalBeforeSend": true
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
     },
     "r3-without-fence": {
       "executionDeadline": true,
@@ -47,7 +107,10 @@
       "nonceDurable": true,
       "nonceRetainedUntilFenced": true,
       "protocolRefusalsFinal": false,
-      "journalBeforeSend": true
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
     },
     "r3-fence-durable-only-after-unlock": {
       "executionDeadline": true,
@@ -56,7 +119,10 @@
       "nonceDurable": true,
       "nonceRetainedUntilFenced": true,
       "protocolRefusalsFinal": false,
-      "journalBeforeSend": true
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
     },
     "r3-without-durable-nonces": {
       "executionDeadline": true,
@@ -65,7 +131,10 @@
       "nonceDurable": false,
       "nonceRetainedUntilFenced": true,
       "protocolRefusalsFinal": false,
-      "journalBeforeSend": true
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
     },
     "r3-nonces-discarded-by-clock": {
       "executionDeadline": true,
@@ -74,7 +143,10 @@
       "nonceDurable": true,
       "nonceRetainedUntilFenced": false,
       "protocolRefusalsFinal": false,
-      "journalBeforeSend": true
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
     },
     "r3-protocol-refusals-final": {
       "executionDeadline": true,
@@ -83,7 +155,10 @@
       "nonceDurable": true,
       "nonceRetainedUntilFenced": true,
       "protocolRefusalsFinal": true,
-      "journalBeforeSend": true
+      "journalBeforeSend": true,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
     },
     "r3-without-journal": {
       "executionDeadline": true,
@@ -92,7 +167,10 @@
       "nonceDurable": true,
       "nonceRetainedUntilFenced": true,
       "protocolRefusalsFinal": false,
-      "journalBeforeSend": false
+      "journalBeforeSend": false,
+      "restoreRaisesFence": true,
+      "ledgerContinuityCheck": false,
+      "profileUnavailableRulesOut": true
     }
   },
   "scenarios": [
@@ -151,6 +229,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -164,6 +246,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -177,6 +261,68 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -190,6 +336,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -206,6 +354,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -219,6 +371,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -232,6 +386,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -245,6 +401,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -258,6 +416,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -271,6 +431,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -335,6 +497,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -351,6 +517,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -364,6 +534,68 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -377,6 +609,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -393,6 +627,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -409,6 +647,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -422,6 +664,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -435,6 +679,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -448,6 +694,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -461,6 +709,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -512,6 +762,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -528,6 +782,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -541,6 +799,68 @@
             "REPLAY_DETECTED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -554,6 +874,8 @@
             "REPLAY_DETECTED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -567,6 +889,8 @@
             "REPLAY_DETECTED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -580,6 +904,8 @@
             "REPLAY_DETECTED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -596,6 +922,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -609,6 +939,8 @@
             "REPLAY_DETECTED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -622,6 +954,8 @@
             "REPLAY_DETECTED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -635,6 +969,8 @@
             "REPLAY_DETECTED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -700,6 +1036,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -716,6 +1056,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -729,6 +1073,68 @@
             "EXPIRED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -742,6 +1148,8 @@
             "EXPIRED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -755,6 +1163,8 @@
             "REPLAY_DETECTED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -768,6 +1178,8 @@
             "EXPIRED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -781,6 +1193,8 @@
             "EXPIRED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -797,6 +1211,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -810,6 +1228,8 @@
             "EXPIRED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -823,6 +1243,8 @@
             "EXPIRED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -872,6 +1294,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "UNKNOWN_KEY"
@@ -888,6 +1314,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "UNKNOWN_KEY"
@@ -904,6 +1334,86 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -919,6 +1429,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -934,6 +1448,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -949,6 +1467,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -964,6 +1486,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -979,6 +1505,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -994,6 +1524,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "UNKNOWN_KEY"
@@ -1010,6 +1544,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1064,6 +1602,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1080,6 +1622,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1095,6 +1641,86 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1110,6 +1736,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1125,6 +1755,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1140,6 +1774,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1155,6 +1793,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1170,6 +1812,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1185,6 +1831,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1200,6 +1850,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1255,6 +1909,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1272,6 +1930,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1289,6 +1951,94 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1306,6 +2056,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1323,6 +2077,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1340,6 +2098,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1357,6 +2119,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1374,6 +2140,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1391,6 +2161,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1408,6 +2182,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1466,6 +2244,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1479,6 +2259,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1492,6 +2274,68 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1505,6 +2349,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1518,6 +2364,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1531,6 +2379,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1544,6 +2394,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1557,6 +2409,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1570,6 +2424,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1583,6 +2439,8 @@
             "QUOTA_EXCEEDED"
           ],
           "operation": null,
+          "binding": null,
+          "failedClosed": false,
           "web": {
             "status": "failed",
             "code": "QUOTA_EXCEEDED"
@@ -1638,6 +2496,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1655,6 +2517,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1672,6 +2538,94 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1689,6 +2643,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1706,6 +2664,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1723,6 +2685,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1740,6 +2706,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1757,6 +2727,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1774,6 +2748,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1791,6 +2769,2065 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "fresh-ledger-retained-identity",
+      "description": "RC7. u creates the profile and binds the user, and its answer is lost. The provisioning ledger is replaced with a fresh one (operations, nonces and fence), as r3 §10.5 permitted, while the identity and profile stores keep the binding. Web's R4 resend t passes the raised fence. The fresh ledger has no operation for the key, so PR #26 begin answers PROFILE_UNAVAILABLE, a merits refusal issued after u's horizon. r3 concludes failed while the user owns the profile.",
+      "assumptions": "No clock error. Recovery at T0 + 100 with verified time; quota always open.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000260,
+            "expiresAt": 1791000320
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000261
+          }
+        ],
+        "recoveries": [
+          {
+            "at": 1791000100,
+            "restore": [
+              "ledger",
+              "nonces",
+              "fence"
+            ]
+          }
+        ],
+        "quota": [
+          [
+            0,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r4": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "attention",
+            "code": "PROFILE_UNAVAILABLE_WHILE_OPEN"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-without-fence": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-without-journal": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        }
+      }
+    },
+    {
+      "id": "fresh-ledger-quota-refusal",
+      "description": "As above, but quota is exhausted when t arrives. PR #26 begin checks quota before the profile id, so the fresh ledger answers QUOTA_EXCEEDED, which Web's R3a backstop cannot recognize. Only the harness's fail-closed continuity check (§10.6) prevents the false failure.",
+      "assumptions": "As above; quota open only until T0 + 50.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000260,
+            "expiresAt": 1791000320
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000261
+          }
+        ],
+        "recoveries": [
+          {
+            "at": 1791000100,
+            "restore": [
+              "ledger",
+              "nonces",
+              "fence"
+            ]
+          }
+        ],
+        "quota": [
+          [
+            0,
+            1791000050
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r4": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-without-fence": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-without-journal": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        }
+      }
+    },
+    {
+      "id": "ledger-restored-older-than-identity",
+      "description": "Partial restore: only the ledger is restored, from a point before u; the identity store keeps u's binding. Same failure mode as a fresh ledger.",
+      "assumptions": "No clock error. Ledger-only restore at T0 + 100.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000260,
+            "expiresAt": 1791000320
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000261
+          }
+        ],
+        "recoveries": [
+          {
+            "at": 1791000100,
+            "restore": [
+              "ledger"
+            ]
+          }
+        ],
+        "quota": [
+          [
+            0,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r4": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "attention",
+            "code": "PROFILE_UNAVAILABLE_WHILE_OPEN"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-without-fence": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        },
+        "r3-without-journal": {
+          "answers": [
+            "OPERATION:completed",
+            "PROFILE_UNAVAILABLE"
+          ],
+          "operation": null,
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "PROFILE_UNAVAILABLE"
+          },
+          "failedAt": 1791000262,
+          "unsafe": true
+        }
+      }
+    },
+    {
+      "id": "identity-restored-older-than-ledger",
+      "description": "Partial restore: only the identity store is restored, from before u; the ledger keeps u's completed operation without its binding. Not a false failure (the resend returns the operation), but the stores disagree, so a continuity-checking gateway fails closed until an operator reconciles them.",
+      "assumptions": "No clock error. Identity-only restore at T0 + 100.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000260,
+            "expiresAt": 1791000320
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000261
+          }
+        ],
+        "recoveries": [
+          {
+            "at": 1791000100,
+            "restore": [
+              "identity"
+            ]
+          }
+        ],
+        "quota": [
+          [
+            0,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "reviewProposal": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "OPERATION:completed",
+            "LEDGER_CONTINUITY_FAILED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": true,
+          "web": {
+            "status": "attention",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "nonces-restored-alone",
+      "description": "Partial restore: the nonce store is restored from before r's arrival. r was refused on the merits (Web concluded failed). A network duplicate of r arrives after the restore and quota frees. Only the restore's fence raise (T + 150) excludes it.",
+      "assumptions": "No clock error. Nonce-only restore at T0 + 10; quota opens at T0 + 15.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001
+          },
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000020,
+            "answerToWeb": false
+          }
+        ],
+        "recoveries": [
+          {
+            "at": 1791000010,
+            "restore": [
+              "nonces"
+            ]
+          }
+        ],
+        "quota": [
+          [
+            1791000015,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "r3": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "fence-restored-alone",
+      "description": "Partial restore: the fence is restored to an older value (0) after t's merits refusal raised it, and the clock then reads behind. u's delayed copy (its first copy was lost, so its nonce was never recorded) arrives and passes the wall clock. Only the restore's fence raise excludes it.",
+      "assumptions": "Clock 30 s behind, 40 s behind after T0 + 121. Fence-only restore at T0 + 122; quota opens at T0 + 121.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000120,
+            "expiresAt": 1791000180
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000120,
+            "lockAt": 1791000120
+          },
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000125,
+            "lockAt": 1791000125,
+            "answerToWeb": false
+          }
+        ],
+        "harnessClock": [
+          {
+            "from": 0,
+            "offset": -30
+          },
+          {
+            "from": 1791000121,
+            "offset": -40
+          }
+        ],
+        "recoveries": [
+          {
+            "at": 1791000122,
+            "restore": [
+              "fence"
+            ],
+            "fenceTo": 0
+          }
+        ],
+        "quota": [
+          [
+            1791000121,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "r3": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "binding": null,
+          "failedClosed": false,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "consistent-restore-of-all-stores",
+      "description": "A consistent restore of ledger, identity store, nonces and fence from one point before u (A9). u's effects are gone with the restore; the resend creates the profile anew and Web resolves it. Safe under every rule set.",
+      "assumptions": "No clock error. Full consistent restore at T0 + 100.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000260,
+            "expiresAt": 1791000320
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000261
+          }
+        ],
+        "recoveries": [
+          {
+            "at": 1791000100,
+            "restore": [
+              "ledger",
+              "identity",
+              "nonces",
+              "fence"
+            ]
+          }
+        ],
+        "quota": [
+          [
+            0,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "reviewProposal": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 1
+          },
+          "binding": {
+            "createdBy": 1
+          },
+          "failedClosed": false,
           "web": {
             "status": "resolved",
             "operationId": "00000000000000000000000000000000",
@@ -1846,6 +4883,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1861,6 +4902,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1876,6 +4921,86 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-without-continuity-check": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-profile-unavailable-rules-out": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r4-restore-without-fence-raise": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1891,6 +5016,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1906,6 +5035,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1921,6 +5054,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1936,6 +5073,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1951,6 +5092,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1966,6 +5111,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },
@@ -1981,6 +5130,10 @@
             "state": "completed",
             "recordedBy": 0
           },
+          "binding": {
+            "createdBy": 0
+          },
+          "failedClosed": false,
           "web": {
             "status": "unresolved"
           },

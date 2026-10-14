@@ -1,10 +1,10 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r3",
+  "fixtureSet": "la-web-provisioning-1/r4",
   "specification": {
     "path": "docs/PROVISIONING_PROTOCOL.md",
-    "bytes": 100051,
-    "sha256": "1ffc4fe973b0dd5b3d4d39c3f31c4bc84c909031029ce03b48120e399b3d9adc"
+    "bytes": 117450,
+    "sha256": "5f65a623aa467ec940d2942583a821b6dd23bf7b9221ccaa8e3e72fc4687b36a"
   },
   "schemas": [
     "LA-WEB-PROVISIONING/1#command/profile.create",
@@ -191,7 +191,10 @@
       "protocol-refusal-ruled-out-by-merits",
       "single-expired-refusal",
       "journaled-never-sent",
-      "admission-refusals-only"
+      "admission-refusals-only",
+      "profile-unavailable-while-open",
+      "quota-after-horizon-with-profile-unavailable",
+      "ledger-continuity-failed"
     ],
     "protocol/la-web-provisioning-1/errors.json": [],
     "protocol/la-web-provisioning-1/execution-deadline.json": [
@@ -210,6 +213,21 @@
       "merits-before-horizon"
     ],
     "protocol/la-web-provisioning-1/keys.json": [],
+    "protocol/la-web-provisioning-1/ledger-continuity.json": [
+      "initialized-empty",
+      "consistent",
+      "no-ledger-no-records",
+      "fresh-ledger-retained-identity",
+      "auto-created-unstamped-ledger",
+      "missing-ledger-retained-markers",
+      "harness-id-mismatch",
+      "retired",
+      "ledger-older-than-identity",
+      "identity-older-than-ledger",
+      "empty-identity-store-with-ledger",
+      "profile-marker-newer-than-ledger",
+      "pending-operation-without-records"
+    ],
     "protocol/la-web-provisioning-1/ordering-model.json": [
       "backward-step-while-waiting",
       "fence-visible-only-after-unlock",
@@ -220,6 +238,13 @@
       "crash-after-record-restart-resend",
       "maximum-skew-no-step",
       "completion-after-expiry",
+      "fresh-ledger-retained-identity",
+      "fresh-ledger-quota-refusal",
+      "ledger-restored-older-than-identity",
+      "identity-restored-older-than-ledger",
+      "nonces-restored-alone",
+      "fence-restored-alone",
+      "consistent-restore-of-all-stores",
       "overlapping-windows-out-of-order"
     ],
     "protocol/la-web-provisioning-1/redelivery.json": [
@@ -282,49 +307,54 @@
     {
       "path": "protocol/la-web-provisioning-1/commands-invalid.json",
       "bytes": 387665,
-      "sha256": "259e5e9ead79db5952123b2caa45e0cb5cd77ffbcc54e80618f28e2ff94d05d7"
+      "sha256": "e9343ee76af27aa115465e11f16990227b9f66643195c29865d7af4b4ceeb5ca"
     },
     {
       "path": "protocol/la-web-provisioning-1/commands-valid.json",
       "bytes": 87207,
-      "sha256": "4a0718fc47f1e1d59960dae80a3903d195f5b8b573afdb5ae71a91360454afc8"
+      "sha256": "723dde699ab9b655324df4b88a7bdb92c69af3c6edb5c3f6f2c1587faab5c290"
     },
     {
       "path": "protocol/la-web-provisioning-1/create-resolution.json",
-      "bytes": 19152,
-      "sha256": "4868fa30d3cff962a842cdca198534c249cc7b1537a8009d0e85dab0d820275e"
+      "bytes": 24385,
+      "sha256": "a0d996f57ba91a38d3a23e5e6e62c5b95ebff8580c91eb58c50e861c19b3f377"
     },
     {
       "path": "protocol/la-web-provisioning-1/errors.json",
-      "bytes": 15904,
-      "sha256": "e2e26e5f08c38b7bc947ce31be54c651f3af00d9a56e42146b57c1c7fb02e49d"
+      "bytes": 16509,
+      "sha256": "9ef91fed10aea232f32c88658904044400d748c58315a03c7f309d91ee141cfc"
     },
     {
       "path": "protocol/la-web-provisioning-1/execution-deadline.json",
       "bytes": 10300,
-      "sha256": "53c7569c2d21ca2b3a3a5e2812a1e3705bf6d4462d315b2a66b255fed4f7bb85"
+      "sha256": "58819d7f24d3e6cf34c95296d61323864ef6ea692bc8b1385c5cbe9509f81504"
     },
     {
       "path": "protocol/la-web-provisioning-1/keys.json",
       "bytes": 4413,
-      "sha256": "4efb5bf43a3052f916c5acf6a91c0a90651111370211a4b3aba29520fb0ea994"
+      "sha256": "8fdc4b74240dbfded618cb753dcc2db2017643b72e6ae3983e2068f2e64c5371"
+    },
+    {
+      "path": "protocol/la-web-provisioning-1/ledger-continuity.json",
+      "bytes": 9797,
+      "sha256": "21c04efbd8f7d2a05dc3c1391ab67102a88ee6dcc9122db7ddeec4755f6d9d65"
     },
     {
       "path": "protocol/la-web-provisioning-1/ordering-model.json",
-      "bytes": 52361,
-      "sha256": "13dbc01a78329efeea6359215d36775a4556229a1dba23c927510dd45da40129"
+      "bytes": 135346,
+      "sha256": "c1e64a19b25c4553a9dccc9d29e21da1dc79a2307d631613dad8952fb237fa7b"
     },
     {
       "path": "protocol/la-web-provisioning-1/redelivery.json",
       "bytes": 32392,
-      "sha256": "d903270d875a39db8cc92610e3881a81207ad428f0462ff6f0e6d87c9150eea6"
+      "sha256": "27a24f1a11a2189add40a0f4c2666db99f046c50c0bb2e4d9cd336815b8957f4"
     },
     {
       "path": "protocol/la-web-provisioning-1/responses.json",
       "bytes": 46117,
-      "sha256": "3face0178433bb44305a4559397cce2f959dc6d4664c6c1783a7f561954c5d92"
+      "sha256": "862abbacf05ebdca16469f4780317d943519f78eca376dc400a3bc869898e053"
     }
   ],
-  "fixtureDigest": "0190187a77f4950e06a132b8309168d30546989f9971ded379a6e232f8a9a857",
+  "fixtureDigest": "bfd171db27c03321227bec1a0e40325bad295b2a228cf02294b3a1e3a87d6e4b",
   "compatibilityDigest": "SHA-256 of this file's exact bytes (MANIFEST.json); recorded in ACCEPTANCE.md, not here."
 }

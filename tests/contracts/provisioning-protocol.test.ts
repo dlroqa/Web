@@ -10,6 +10,7 @@ import commandsValidText from "../../protocol/la-web-provisioning-1/commands-val
 import resolutionText from "../../protocol/la-web-provisioning-1/create-resolution.json?raw";
 import errorsText from "../../protocol/la-web-provisioning-1/errors.json?raw";
 import executionDeadlineText from "../../protocol/la-web-provisioning-1/execution-deadline.json?raw";
+import ledgerContinuityText from "../../protocol/la-web-provisioning-1/ledger-continuity.json?raw";
 import orderingText from "../../protocol/la-web-provisioning-1/ordering-model.json?raw";
 import keysText from "../../protocol/la-web-provisioning-1/keys.json?raw";
 import redeliveryText from "../../protocol/la-web-provisioning-1/redelivery.json?raw";
@@ -19,6 +20,8 @@ import {
   assessOwnership,
   canonicalize,
   checkExecutionDeadline,
+  checkLedgerContinuity,
+  type ContinuityInput,
   type CanonicalValue,
   classifyResponse,
   type Command,
@@ -229,7 +232,12 @@ describe("create resolution", () => {
   it.each(resolution)("$id", (c) => {
     const resolved = resolveCreateJob(c.transmissions);
     expect(resolved).toEqual(c.expect);
-    expect({ present: planReconciliation(resolved, "present"), absent: planReconciliation(resolved, "absent") }).toEqual(
+    expect({
+      present: planReconciliation(resolved, "present"),
+      absent: planReconciliation(resolved, "absent"),
+      retiredPresent: planReconciliation(resolved, "present", "retired"),
+      retiredAbsent: planReconciliation(resolved, "absent", "retired"),
+    }).toEqual(
       (c as unknown as { plan: unknown }).plan,
     );
   });
@@ -325,7 +333,8 @@ describe("ordering model (§13.2, RC5, RC6)", () => {
     for (const [name, rules] of Object.entries(RULE_SETS)) {
       expect(JSON.parse(JSON.stringify(simulateOrdering(s.scenario, rules))), name).toEqual(s.results[name]);
     }
-    expect(s.results.r3?.unsafe, "r3 must be safe").toBe(false);
+    // r3 is unsafe only on the RC7 recovery scenarios; r4 (this revision) is safe on all.
+    expect(s.results.r4?.unsafe, "r4 must be safe").toBe(false);
   });
 
   it("each counterexample is defeated by exactly the r3 rule it targets", () => {
@@ -337,6 +346,32 @@ describe("ordering model (§13.2, RC5, RC6)", () => {
     expect(unsafe("duplicate-after-clock-purge-and-rollback")).toEqual(["r2", "r3-nonces-discarded-by-clock", "reviewProposal"]);
     expect(unsafe("pre-nonce-refusal-then-duplicate")).toEqual(["r2", "r3-protocol-refusals-final", "reviewProposal"]);
     expect(unsafe("unjournaled-transmission")).toEqual(["r2", "r3-without-journal"]);
+  });
+
+  it("RC7: r4 resolves ledger discontinuity, and each r4 layer is needed somewhere", () => {
+    const results = (id: string) => fixture.scenarios.find((s) => s.id === id)?.results ?? {};
+    const unsafe = (id: string) => Object.entries(results(id)).filter(([, r]) => r.unsafe).map(([name]) => name);
+    // r3's restore rule loses; every r4 rule set is safe on the canonical case (two independent layers).
+    for (const id of ["fresh-ledger-retained-identity", "ledger-restored-older-than-identity"]) {
+      expect(unsafe(id), id).toContain("r3");
+      expect(unsafe(id).filter((n) => n.startsWith("r4")), id).toEqual([]);
+    }
+    // Only the harness's continuity check stops a fresh ledger that answers on quota.
+    expect(unsafe("fresh-ledger-quota-refusal").filter((n) => n.startsWith("r4"))).toEqual(["r4-without-continuity-check"]);
+    // Partial nonce or fence restores are excluded by the restore's fence raise.
+    for (const id of ["nonces-restored-alone", "fence-restored-alone"]) {
+      expect(unsafe(id).filter((n) => n.startsWith("r3") || n.startsWith("r4")).sort(), id).toEqual(["r3-without-fence", "r4-restore-without-fence-raise"]);
+    }
+    expect(unsafe("consistent-restore-of-all-stores")).toEqual([]);
+    expect(unsafe("identity-restored-older-than-ledger")).toEqual([]);
+    // Fail closed, no duplicate binding, no removed binding, never failed.
+    const r4 = results("fresh-ledger-retained-identity").r4 as unknown as {
+      failedClosed: boolean; binding: { createdBy: number } | null; web: { status: string }; answers: string[];
+    };
+    expect(r4.failedClosed).toBe(true);
+    expect(r4.binding).toEqual({ createdBy: 0 });
+    expect(r4.answers).toEqual(["OPERATION:completed", "LEDGER_CONTINUITY_FAILED"]);
+    expect(r4.web).toEqual({ status: "attention", code: "LEDGER_CONTINUITY_FAILED" });
   });
 
   /**
@@ -418,6 +453,7 @@ describe("ordering model (§13.2, RC5, RC6)", () => {
     console.info(summary);
     if (firstR3Failure) throw new Error(`unsafe r3 schedule: ${JSON.stringify(firstR3Failure)}`);
     expect(unsafe.r3).toBe(0);
+    expect(unsafe.r4).toBe(0);
     // The wall-clock check bounds normal execution; safety rests on the fence (§13.2 proof).
     expect(unsafe["r3-without-wall-clock-deadline"]).toBe(0);
     for (const name of ["r2", "reviewProposal", "r3-protocol-refusals-final", "r3-without-journal"]) {
@@ -491,12 +527,105 @@ describe("ordering model (§13.2, RC5, RC6)", () => {
     const summary = `hazards: seed 0x${SEED.toString(16)}, ${RUNS} per family, unsafe ${JSON.stringify(counts)}`;
     console.info(summary);
     expect(counts.lockWait.r3, summary).toBe(0);
+    expect(counts.lockWait.r4, summary).toBe(0);
+    expect(counts.duplicate.r4, summary).toBe(0);
     expect(counts.duplicate.r3, summary).toBe(0);
     for (const name of ["r2", "reviewProposal", "r3-without-fence", "r3-fence-durable-only-after-unlock"]) {
       expect(counts.lockWait[name], `${name}: ${summary}`).toBeGreaterThan(0);
     }
     for (const name of ["r2", "reviewProposal", "r3-without-durable-nonces", "r3-nonces-discarded-by-clock"]) {
       expect(counts.duplicate[name], `${name}: ${summary}`).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("ledger continuity (A9, §10.6)", () => {
+  const fixture = JSON.parse(ledgerContinuityText) as { cases: Array<{ id: string; input: ContinuityInput; expect: unknown }> };
+
+  it.each(fixture.cases)("$id", (c) => {
+    expect(checkLedgerContinuity(c.input)).toEqual(c.expect);
+  });
+
+  it("never serves from absence, and serves only stamped, consistent ledgers", () => {
+    const serving = fixture.cases.filter((c) => (c.expect as { serve: boolean }).serve).map((c) => c.id);
+    expect(serving.sort()).toEqual(["consistent", "initialized-empty", "pending-operation-without-records"]);
+  });
+
+  /**
+   * Seeded recovery schedules. Assumptions: u (and sometimes a duplicate copy)
+   * may complete, crash after record, or be refused; one recovery restores a
+   * random non-empty subset of {ledger, identity, nonces, fence} at a random
+   * time, with a fence restored to 0 or an older value; clock offset ±30 s
+   * with up to one ±60 s step; 1–3 later resends at or after the horizon;
+   * quota windows. Not modelled: forged answers, operator reassignment.
+   */
+  it("finds no unsafe recovery schedule under r4, and counterexamples without each r4 layer", () => {
+    const SEED = 0x0a90_0004;
+    const RUNS = 25_000;
+    let state = SEED;
+    const rand = () => {
+      state = (state + 0x6d2b79f5) | 0;
+      let t = Math.imul(state ^ (state >>> 15), 1 | state);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const int = (max: number) => Math.floor(rand() * (max + 1));
+    const T0 = 1_791_000_000;
+    const FOREVER = Number.MAX_SAFE_INTEGER;
+    const STORES = ["ledger", "identity", "nonces", "fence"] as const;
+    const unsafe: Record<string, number> = Object.fromEntries(Object.keys(RULE_SETS).map((k) => [k, 0]));
+    let firstR4Failure: OrderingScenario | null = null;
+    for (let run = 0; run < RUNS; run += 1) {
+      const resends = 1 + int(2);
+      const transmissions = [{ issuedAt: T0, expiresAt: T0 + 60 }];
+      for (let i = 0; i < resends; i += 1) {
+        const issuedAt = T0 + 120 + int(300) + i * 130;
+        transmissions.push({ issuedAt, expiresAt: issuedAt + 60 });
+      }
+      const deliveries: OrderingScenario["deliveries"][number][] = [
+        { transmission: 0, arrivesAt: T0 + 1 + int(10), answerToWeb: false, crashAfterRecord: int(4) === 0 },
+      ];
+      if (int(3) === 0) deliveries.push({ transmission: 0, arrivesAt: T0 + 20 + int(200), answerToWeb: false });
+      for (let i = 1; i <= resends; i += 1) {
+        const tx = transmissions[i] as { issuedAt: number };
+        deliveries.push({ transmission: i, arrivesAt: tx.issuedAt + int(5) });
+      }
+      // Serialize lock acquisitions in arrival order, as the ledger lock does.
+      let lockFree = -Infinity;
+      const ordered = deliveries.map((d, i) => ({ d, i })).sort((a, b) => a.d.arrivesAt - b.d.arrivesAt || a.i - b.i);
+      for (const { d } of ordered) {
+        const lockAt = Math.max(d.arrivesAt, lockFree);
+        (d as { lockAt?: number }).lockAt = lockAt;
+        lockFree = lockAt + 1;
+      }
+      const restore = STORES.filter(() => int(1) === 0);
+      if (restore.length === 0) restore.push(STORES[int(3)] as (typeof STORES)[number]);
+      const harnessClock: Array<{ from: number; offset: number }> = [{ from: 0, offset: int(60) - 30 }];
+      if (int(1) === 0) harnessClock.push({ from: T0 + int(500), offset: int(120) - 60 });
+      harnessClock.sort((a, b) => a.from - b.from);
+      const q = T0 + int(500);
+      const scenario: OrderingScenario = {
+        transmissions,
+        deliveries,
+        harnessClock,
+        recoveries: [{ at: T0 + 30 + int(250), restore, fenceTo: int(1) === 0 ? 0 : T0 + int(60) }],
+        quota: [[[0, FOREVER]], [[0, q]], [[q, FOREVER]]][int(2)] as Array<[number, number]>,
+      };
+      for (const [name, rules] of Object.entries(RULE_SETS)) {
+        if (simulateOrdering(scenario, rules).unsafe) {
+          unsafe[name] = (unsafe[name] as number) + 1;
+          if (name === "r4" && firstR4Failure === null) firstR4Failure = scenario;
+        }
+      }
+    }
+    const summary = `recovery: seed 0x${SEED.toString(16)}, ${RUNS} schedules, unsafe per rule set ${JSON.stringify(unsafe)}`;
+    console.info(summary);
+    if (firstR4Failure) throw new Error(`unsafe r4 schedule: ${JSON.stringify(firstR4Failure)}`);
+    expect(unsafe.r4, summary).toBe(0);
+    // The restore's fence raise needs a narrow duplicate/clock hazard: covered by the
+    // deterministic fixtures nonces-restored-alone and fence-restored-alone.
+    for (const name of ["r3", "r4-without-continuity-check"]) {
+      expect(unsafe[name], `${name}: ${summary}`).toBeGreaterThan(0);
     }
   });
 });

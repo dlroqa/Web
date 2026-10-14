@@ -1,0 +1,316 @@
+{
+  "protocol": "LA-WEB-PROVISIONING/1",
+  "fixtureSet": "la-web-provisioning-1/r4",
+  "kind": "ledger-continuity",
+  "description": "§10.6 C1–C3. `expect` is the verdict of the gateway's fail-closed activation check. Operation ids are PR #26's: ledger operations, identity-store provisioning transaction records (`provisioning:<op>`), and profile `.provisioning-operation` markers. Refusing to serve is answered LEDGER_CONTINUITY_FAILED to every command.",
+  "cases": [
+    {
+      "id": "initialized-empty",
+      "description": "Operator-initialized ledger stamped with this harness id; no provisioning records anywhere.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessalpha0000001",
+          "retired": false,
+          "operations": []
+        },
+        "identityProvisioningRecords": [],
+        "profileMarkers": []
+      },
+      "expect": {
+        "serve": true
+      }
+    },
+    {
+      "id": "consistent",
+      "description": "Every record has its operation; every bound operation has its identity record.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessalpha0000001",
+          "retired": false,
+          "operations": [
+            {
+              "operationId": "00000000000000000000000000000001",
+              "state": "completed"
+            },
+            {
+              "operationId": "00000000000000000000000000000002",
+              "state": "revoked"
+            },
+            {
+              "operationId": "00000000000000000000000000000003",
+              "state": "failed"
+            }
+          ]
+        },
+        "identityProvisioningRecords": [
+          "00000000000000000000000000000001",
+          "00000000000000000000000000000002"
+        ],
+        "profileMarkers": [
+          "00000000000000000000000000000001",
+          "00000000000000000000000000000002"
+        ]
+      },
+      "expect": {
+        "serve": true
+      }
+    },
+    {
+      "id": "no-ledger-no-records",
+      "description": "No ledger and no records: absence never establishes a clean state; only explicit operator initialization does.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": null,
+        "identityProvisioningRecords": [],
+        "profileMarkers": []
+      },
+      "expect": {
+        "serve": false,
+        "reason": "NO_LEDGER"
+      }
+    },
+    {
+      "id": "fresh-ledger-retained-identity",
+      "description": "RC7: a ledger with no operations while the identity and profile stores hold provisioning records.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessalpha0000001",
+          "retired": false,
+          "operations": []
+        },
+        "identityProvisioningRecords": [
+          "00000000000000000000000000000001"
+        ],
+        "profileMarkers": [
+          "00000000000000000000000000000001"
+        ]
+      },
+      "expect": {
+        "serve": false,
+        "reason": "LEDGER_BEHIND_STORES"
+      }
+    },
+    {
+      "id": "auto-created-unstamped-ledger",
+      "description": "A ledger created implicitly (not by the operator) carries no harness id.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": null,
+          "retired": false,
+          "operations": []
+        },
+        "identityProvisioningRecords": [],
+        "profileMarkers": []
+      },
+      "expect": {
+        "serve": false,
+        "reason": "UNSTAMPED_LEDGER"
+      }
+    },
+    {
+      "id": "missing-ledger-retained-markers",
+      "description": "The ledger file is gone; profile markers remain.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": null,
+        "identityProvisioningRecords": [],
+        "profileMarkers": [
+          "00000000000000000000000000000001"
+        ]
+      },
+      "expect": {
+        "serve": false,
+        "reason": "NO_LEDGER"
+      }
+    },
+    {
+      "id": "harness-id-mismatch",
+      "description": "The ledger belongs to another harness id (copied or swapped).",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessbravo0000002",
+          "retired": false,
+          "operations": []
+        },
+        "identityProvisioningRecords": [],
+        "profileMarkers": []
+      },
+      "expect": {
+        "serve": false,
+        "reason": "HARNESS_ID_MISMATCH"
+      }
+    },
+    {
+      "id": "retired",
+      "description": "The operator retired this harness id (§10.6).",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessalpha0000001",
+          "retired": true,
+          "operations": [
+            {
+              "operationId": "00000000000000000000000000000001",
+              "state": "completed"
+            }
+          ]
+        },
+        "identityProvisioningRecords": [
+          "00000000000000000000000000000001"
+        ],
+        "profileMarkers": [
+          "00000000000000000000000000000001"
+        ]
+      },
+      "expect": {
+        "serve": false,
+        "reason": "RETIRED"
+      }
+    },
+    {
+      "id": "ledger-older-than-identity",
+      "description": "Partial restore: the identity store references an operation the ledger does not have.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessalpha0000001",
+          "retired": false,
+          "operations": [
+            {
+              "operationId": "00000000000000000000000000000001",
+              "state": "completed"
+            }
+          ]
+        },
+        "identityProvisioningRecords": [
+          "00000000000000000000000000000001",
+          "00000000000000000000000000000002"
+        ],
+        "profileMarkers": [
+          "00000000000000000000000000000001",
+          "00000000000000000000000000000002"
+        ]
+      },
+      "expect": {
+        "serve": false,
+        "reason": "LEDGER_BEHIND_STORES"
+      }
+    },
+    {
+      "id": "identity-older-than-ledger",
+      "description": "Partial restore: a completed operation whose identity transaction record is missing.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessalpha0000001",
+          "retired": false,
+          "operations": [
+            {
+              "operationId": "00000000000000000000000000000001",
+              "state": "completed"
+            },
+            {
+              "operationId": "00000000000000000000000000000002",
+              "state": "completed"
+            }
+          ]
+        },
+        "identityProvisioningRecords": [
+          "00000000000000000000000000000001"
+        ],
+        "profileMarkers": [
+          "00000000000000000000000000000001",
+          "00000000000000000000000000000002"
+        ]
+      },
+      "expect": {
+        "serve": false,
+        "reason": "STORES_BEHIND_LEDGER"
+      }
+    },
+    {
+      "id": "empty-identity-store-with-ledger",
+      "description": "A new, empty identity store beside a ledger with completed operations never establishes a trusted state.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessalpha0000001",
+          "retired": false,
+          "operations": [
+            {
+              "operationId": "00000000000000000000000000000001",
+              "state": "completed"
+            }
+          ]
+        },
+        "identityProvisioningRecords": [],
+        "profileMarkers": []
+      },
+      "expect": {
+        "serve": false,
+        "reason": "STORES_BEHIND_LEDGER"
+      }
+    },
+    {
+      "id": "profile-marker-newer-than-ledger",
+      "description": "Partial restore: a profile marker names an operation the ledger lacks.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessalpha0000001",
+          "retired": false,
+          "operations": [
+            {
+              "operationId": "00000000000000000000000000000001",
+              "state": "completed"
+            }
+          ]
+        },
+        "identityProvisioningRecords": [
+          "00000000000000000000000000000001"
+        ],
+        "profileMarkers": [
+          "00000000000000000000000000000001",
+          "00000000000000000000000000000009"
+        ]
+      },
+      "expect": {
+        "serve": false,
+        "reason": "LEDGER_BEHIND_STORES"
+      }
+    },
+    {
+      "id": "pending-operation-without-records",
+      "description": "An operation interrupted before its identity transaction (pending, profile_created) needs no identity record yet.",
+      "input": {
+        "configuredHarnessId": "hns_fixtureharnessalpha0000001",
+        "ledger": {
+          "harnessId": "hns_fixtureharnessalpha0000001",
+          "retired": false,
+          "operations": [
+            {
+              "operationId": "00000000000000000000000000000001",
+              "state": "pending"
+            },
+            {
+              "operationId": "00000000000000000000000000000002",
+              "state": "profile_created"
+            }
+          ]
+        },
+        "identityProvisioningRecords": [],
+        "profileMarkers": [
+          "00000000000000000000000000000002"
+        ]
+      },
+      "expect": {
+        "serve": true
+      }
+    }
+  ]
+}

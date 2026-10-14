@@ -12,6 +12,8 @@
  */
 import {
   ACCEPTANCE_HORIZON_SECONDS,
+  checkLedgerContinuity,
+  type ContinuityInput,
   advanceFence,
   type OrderingScenario,
   planReconciliation,
@@ -59,7 +61,7 @@ import {
 
 export const FIXTURE_DIR = "protocol/la-web-provisioning-1";
 export const SPEC_PATH = "docs/PROVISIONING_PROTOCOL.md";
-export const FIXTURE_SET = "la-web-provisioning-1/r3";
+export const FIXTURE_SET = "la-web-provisioning-1/r4";
 
 export const SCHEMA_IDS = [
   "LA-WEB-PROVISIONING/1#command/profile.create",
@@ -846,10 +848,22 @@ function buildResolution() {
     { id: "single-expired-refusal", description: "r3: EXPIRED (step 12 or 14) is transmission-only. Alone it never fails a job.", transmissions: [tx(T0, refused("EXPIRED"))] },
     { id: "journaled-never-sent", description: "RC6: a journaled transmission whose send status is unknown (the Worker died after commit) counts as uncertain.", transmissions: [tx(T0, uncertain), tx(T0 + 30, refused("QUOTA_EXCEEDED"))] },
     { id: "admission-refusals-only", description: "Every transmission refused at local admission (after the nonce was durably recorded): nothing exists.", transmissions: [tx(T0, refused("UNAUTHENTICATED")), tx(T0 + 30, refused("PROVISIONER_REVOKED"))] },
+    { id: "profile-unavailable-while-open", description: "r4 R3a: PROFILE_UNAVAILABLE for a resend while an earlier transmission is open signals a possible ledger discontinuity (RC7). Never failed: needs attention.", transmissions: [tx(T0, uncertain), tx(T0 + H, refused("PROFILE_UNAVAILABLE"))] },
+    { id: "quota-after-horizon-with-profile-unavailable", description: "r4 R3a is conservative: a PROFILE_UNAVAILABLE anywhere in a job with an open transmission needs attention, even when another merits refusal would rule the open transmission out.", transmissions: [tx(T0, uncertain), tx(T0 + H, refused("QUOTA_EXCEEDED")), tx(T0 + H + 10, refused("PROFILE_UNAVAILABLE"))] },
+    { id: "ledger-continuity-failed", description: "r4: the harness fails closed (LEDGER_CONTINUITY_FAILED, transmission-only). The job needs attention and is never failed.", transmissions: [tx(T0, uncertain), tx(T0 + H, refused("LEDGER_CONTINUITY_FAILED"))] },
   ];
   return cases.map((c) => {
     const expect = resolveCreateJob(c.transmissions);
-    return { ...c, expect, plan: { present: planReconciliation(expect, "present"), absent: planReconciliation(expect, "absent") } };
+    return {
+      ...c,
+      expect,
+      plan: {
+        present: planReconciliation(expect, "present"),
+        absent: planReconciliation(expect, "absent"),
+        retiredPresent: planReconciliation(expect, "present", "retired"),
+        retiredAbsent: planReconciliation(expect, "absent", "retired"),
+      },
+    };
   });
 }
 
@@ -1086,6 +1100,107 @@ function buildOrderingModel() {
       },
     },
     {
+      id: "fresh-ledger-retained-identity",
+      description:
+        "RC7. u creates the profile and binds the user, and its answer is lost. The provisioning ledger is replaced with a fresh one (operations, nonces and fence), as r3 §10.5 permitted, while the identity and profile stores keep the binding. Web's R4 resend t passes the raised fence. The fresh ledger has no operation for the key, so PR #26 begin answers PROFILE_UNAVAILABLE, a merits refusal issued after u's horizon. r3 concludes failed while the user owns the profile.",
+      assumptions: "No clock error. Recovery at T0 + 100 with verified time; quota always open.",
+      scenario: {
+        transmissions: [tx(0), tx(260)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1), answerToWeb: false },
+          { transmission: 1, arrivesAt: at(261) },
+        ],
+        recoveries: [{ at: at(100), restore: ["ledger", "nonces", "fence"] }],
+        quota: [[0, FOREVER]],
+      },
+    },
+    {
+      id: "fresh-ledger-quota-refusal",
+      description:
+        "As above, but quota is exhausted when t arrives. PR #26 begin checks quota before the profile id, so the fresh ledger answers QUOTA_EXCEEDED, which Web's R3a backstop cannot recognize. Only the harness's fail-closed continuity check (§10.6) prevents the false failure.",
+      assumptions: "As above; quota open only until T0 + 50.",
+      scenario: {
+        transmissions: [tx(0), tx(260)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1), answerToWeb: false },
+          { transmission: 1, arrivesAt: at(261) },
+        ],
+        recoveries: [{ at: at(100), restore: ["ledger", "nonces", "fence"] }],
+        quota: [[0, at(50)]],
+      },
+    },
+    {
+      id: "ledger-restored-older-than-identity",
+      description: "Partial restore: only the ledger is restored, from a point before u; the identity store keeps u's binding. Same failure mode as a fresh ledger.",
+      assumptions: "No clock error. Ledger-only restore at T0 + 100.",
+      scenario: {
+        transmissions: [tx(0), tx(260)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1), answerToWeb: false },
+          { transmission: 1, arrivesAt: at(261) },
+        ],
+        recoveries: [{ at: at(100), restore: ["ledger"] }],
+        quota: [[0, FOREVER]],
+      },
+    },
+    {
+      id: "identity-restored-older-than-ledger",
+      description: "Partial restore: only the identity store is restored, from before u; the ledger keeps u's completed operation without its binding. Not a false failure (the resend returns the operation), but the stores disagree, so a continuity-checking gateway fails closed until an operator reconciles them.",
+      assumptions: "No clock error. Identity-only restore at T0 + 100.",
+      scenario: {
+        transmissions: [tx(0), tx(260)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1), answerToWeb: false },
+          { transmission: 1, arrivesAt: at(261) },
+        ],
+        recoveries: [{ at: at(100), restore: ["identity"] }],
+        quota: [[0, FOREVER]],
+      },
+    },
+    {
+      id: "nonces-restored-alone",
+      description: "Partial restore: the nonce store is restored from before r's arrival. r was refused on the merits (Web concluded failed). A network duplicate of r arrives after the restore and quota frees. Only the restore's fence raise (T + 150) excludes it.",
+      assumptions: "No clock error. Nonce-only restore at T0 + 10; quota opens at T0 + 15.",
+      scenario: {
+        transmissions: [tx(0)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1) },
+          { transmission: 0, arrivesAt: at(20), answerToWeb: false },
+        ],
+        recoveries: [{ at: at(10), restore: ["nonces"] }],
+        quota: [[at(15), FOREVER]],
+      },
+    },
+    {
+      id: "fence-restored-alone",
+      description: "Partial restore: the fence is restored to an older value (0) after t's merits refusal raised it, and the clock then reads behind. u's delayed copy (its first copy was lost, so its nonce was never recorded) arrives and passes the wall clock. Only the restore's fence raise excludes it.",
+      assumptions: "Clock 30 s behind, 40 s behind after T0 + 121. Fence-only restore at T0 + 122; quota opens at T0 + 121.",
+      scenario: {
+        transmissions: [tx(0), tx(120)],
+        deliveries: [
+          { transmission: 1, arrivesAt: at(120), lockAt: at(120) },
+          { transmission: 0, arrivesAt: at(125), lockAt: at(125), answerToWeb: false },
+        ],
+        harnessClock: [{ from: 0, offset: -30 }, { from: at(121), offset: -40 }],
+        recoveries: [{ at: at(122), restore: ["fence"], fenceTo: 0 }],
+        quota: [[at(121), FOREVER]],
+      },
+    },
+    {
+      id: "consistent-restore-of-all-stores",
+      description: "A consistent restore of ledger, identity store, nonces and fence from one point before u (A9). u's effects are gone with the restore; the resend creates the profile anew and Web resolves it. Safe under every rule set.",
+      assumptions: "No clock error. Full consistent restore at T0 + 100.",
+      scenario: {
+        transmissions: [tx(0), tx(260)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1), answerToWeb: false },
+          { transmission: 1, arrivesAt: at(261) },
+        ],
+        recoveries: [{ at: at(100), restore: ["ledger", "identity", "nonces", "fence"] }],
+        quota: [[0, FOREVER]],
+      },
+    },
+    {
       id: "overlapping-windows-out-of-order",
       description: "Two transmissions with overlapping windows arrive out of order. The later one is refused on the merits before the earlier one binds. Web stays unresolved, because the refusal is inside the earlier one's horizon.",
       assumptions: "No clock error. Quota frees at T0 + 50.",
@@ -1107,6 +1222,40 @@ function buildOrderingModel() {
       ...s,
       results: Object.fromEntries(Object.entries(RULE_SETS).map(([name, rules]) => [name, simulateOrdering(s.scenario, rules)])),
     })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ledger continuity (§10.6 C1–C3): the gateway's fail-closed activation check
+// ---------------------------------------------------------------------------
+
+function buildLedgerContinuity() {
+  const HID = HARNESS_A;
+  const op = (n: number) => n.toString(16).padStart(32, "0");
+  const ledger = (operations: ContinuityInput["ledger"] extends infer L ? (L extends { operations: infer O } ? O : never) : never, extra: { harnessId?: string | null; retired?: boolean } = {}) => ({
+    harnessId: extra.harnessId === undefined ? HID : extra.harnessId,
+    retired: extra.retired ?? false,
+    operations,
+  });
+  const cases: Array<{ id: string; description: string; input: ContinuityInput }> = [
+    { id: "initialized-empty", description: "Operator-initialized ledger stamped with this harness id; no provisioning records anywhere.", input: { configuredHarnessId: HID, ledger: ledger([]), identityProvisioningRecords: [], profileMarkers: [] } },
+    { id: "consistent", description: "Every record has its operation; every bound operation has its identity record.", input: { configuredHarnessId: HID, ledger: ledger([{ operationId: op(1), state: "completed" }, { operationId: op(2), state: "revoked" }, { operationId: op(3), state: "failed" }]), identityProvisioningRecords: [op(1), op(2)], profileMarkers: [op(1), op(2)] } },
+    { id: "no-ledger-no-records", description: "No ledger and no records: absence never establishes a clean state; only explicit operator initialization does.", input: { configuredHarnessId: HID, ledger: null, identityProvisioningRecords: [], profileMarkers: [] } },
+    { id: "fresh-ledger-retained-identity", description: "RC7: a ledger with no operations while the identity and profile stores hold provisioning records.", input: { configuredHarnessId: HID, ledger: ledger([]), identityProvisioningRecords: [op(1)], profileMarkers: [op(1)] } },
+    { id: "auto-created-unstamped-ledger", description: "A ledger created implicitly (not by the operator) carries no harness id.", input: { configuredHarnessId: HID, ledger: ledger([], { harnessId: null }), identityProvisioningRecords: [], profileMarkers: [] } },
+    { id: "missing-ledger-retained-markers", description: "The ledger file is gone; profile markers remain.", input: { configuredHarnessId: HID, ledger: null, identityProvisioningRecords: [], profileMarkers: [op(1)] } },
+    { id: "harness-id-mismatch", description: "The ledger belongs to another harness id (copied or swapped).", input: { configuredHarnessId: HID, ledger: ledger([], { harnessId: HARNESS_B }), identityProvisioningRecords: [], profileMarkers: [] } },
+    { id: "retired", description: "The operator retired this harness id (§10.6).", input: { configuredHarnessId: HID, ledger: ledger([{ operationId: op(1), state: "completed" }], { retired: true }), identityProvisioningRecords: [op(1)], profileMarkers: [op(1)] } },
+    { id: "ledger-older-than-identity", description: "Partial restore: the identity store references an operation the ledger does not have.", input: { configuredHarnessId: HID, ledger: ledger([{ operationId: op(1), state: "completed" }]), identityProvisioningRecords: [op(1), op(2)], profileMarkers: [op(1), op(2)] } },
+    { id: "identity-older-than-ledger", description: "Partial restore: a completed operation whose identity transaction record is missing.", input: { configuredHarnessId: HID, ledger: ledger([{ operationId: op(1), state: "completed" }, { operationId: op(2), state: "completed" }]), identityProvisioningRecords: [op(1)], profileMarkers: [op(1), op(2)] } },
+    { id: "empty-identity-store-with-ledger", description: "A new, empty identity store beside a ledger with completed operations never establishes a trusted state.", input: { configuredHarnessId: HID, ledger: ledger([{ operationId: op(1), state: "completed" }]), identityProvisioningRecords: [], profileMarkers: [] } },
+    { id: "profile-marker-newer-than-ledger", description: "Partial restore: a profile marker names an operation the ledger lacks.", input: { configuredHarnessId: HID, ledger: ledger([{ operationId: op(1), state: "completed" }]), identityProvisioningRecords: [op(1)], profileMarkers: [op(1), op(9)] } },
+    { id: "pending-operation-without-records", description: "An operation interrupted before its identity transaction (pending, profile_created) needs no identity record yet.", input: { configuredHarnessId: HID, ledger: ledger([{ operationId: op(1), state: "pending" }, { operationId: op(2), state: "profile_created" }]), identityProvisioningRecords: [], profileMarkers: [op(2)] } },
+  ];
+  return {
+    description:
+      "§10.6 C1–C3. `expect` is the verdict of the gateway's fail-closed activation check. Operation ids are PR #26's: ledger operations, identity-store provisioning transaction records (`provisioning:<op>`), and profile `.provisioning-operation` markers. Refusing to serve is answered LEDGER_CONTINUITY_FAILED to every command.",
+    cases: cases.map((c) => ({ ...c, expect: checkLedgerContinuity(c.input) })),
   };
 }
 
@@ -1192,6 +1341,10 @@ export async function buildFixtureFiles(): Promise<Map<string, string>> {
         "§10 step 14 for profile.create: after acquiring the ledger lock and before the idempotency lookup, the harness refuses EXPIRED when now ≥ expiresAt + 30. `deadlineCases` are single checks; `races` model one harness serving one job (calls serialized by the ledger lock) with and without step 14. `unsafe` means Web concluded failed while an operation exists.",
       ...buildExecutionDeadline(valid),
     }),
+  );
+  files.set(
+    `${FIXTURE_DIR}/ledger-continuity.json`,
+    json({ ...header("ledger-continuity"), ...buildLedgerContinuity() }),
   );
   files.set(
     `${FIXTURE_DIR}/ordering-model.json`,

@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r3",
+  "fixtureSet": "la-web-provisioning-1/r4",
   "kind": "create-resolution",
   "description": "What Web may conclude about one profile.create job from all its transmissions (§13.2). Times are Web-clock Unix seconds.",
   "acceptanceHorizonSeconds": 60,
@@ -14,7 +14,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -38,7 +40,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "revoke"
+        "absent": "revoke",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -69,7 +73,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "revoke"
+        "absent": "revoke",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -152,7 +158,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -172,7 +180,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -194,7 +204,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "none"
+        "absent": "none",
+        "retiredPresent": "none",
+        "retiredAbsent": "none"
       }
     },
     {
@@ -216,7 +228,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "none"
+        "absent": "none",
+        "retiredPresent": "none",
+        "retiredAbsent": "none"
       }
     },
     {
@@ -244,7 +258,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -273,7 +289,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "none"
+        "absent": "none",
+        "retiredPresent": "none",
+        "retiredAbsent": "none"
       }
     },
     {
@@ -301,7 +319,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -330,7 +350,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "none"
+        "absent": "none",
+        "retiredPresent": "none",
+        "retiredAbsent": "none"
       }
     },
     {
@@ -369,7 +391,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "revoke"
+        "absent": "revoke",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -397,7 +421,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -425,7 +451,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -453,7 +481,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -482,7 +512,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "none"
+        "absent": "none",
+        "retiredPresent": "none",
+        "retiredAbsent": "none"
       }
     },
     {
@@ -513,7 +545,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "confirm-status"
+        "absent": "confirm-status",
+        "retiredPresent": "none",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -533,7 +567,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -564,7 +600,9 @@
       },
       "plan": {
         "present": "operator-attention",
-        "absent": "none"
+        "absent": "none",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "none"
       }
     },
     {
@@ -593,7 +631,9 @@
       },
       "plan": {
         "present": "operator-attention",
-        "absent": "operator-attention"
+        "absent": "operator-attention",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -625,7 +665,9 @@
       },
       "plan": {
         "present": "operator-attention",
-        "absent": "operator-attention"
+        "absent": "operator-attention",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -646,7 +688,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -676,7 +720,9 @@
       },
       "plan": {
         "present": "none",
-        "absent": "none"
+        "absent": "none",
+        "retiredPresent": "none",
+        "retiredAbsent": "none"
       }
     },
     {
@@ -697,7 +743,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -725,7 +773,9 @@
       },
       "plan": {
         "present": "send-create",
-        "absent": "send-create"
+        "absent": "send-create",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     },
     {
@@ -755,7 +805,110 @@
       },
       "plan": {
         "present": "none",
-        "absent": "none"
+        "absent": "none",
+        "retiredPresent": "none",
+        "retiredAbsent": "none"
+      }
+    },
+    {
+      "id": "profile-unavailable-while-open",
+      "description": "r4 R3a: PROFILE_UNAVAILABLE for a resend while an earlier transmission is open signals a possible ledger discontinuity (RC7). Never failed: needs attention.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "refused",
+            "code": "PROFILE_UNAVAILABLE"
+          }
+        }
+      ],
+      "expect": {
+        "status": "attention",
+        "code": "PROFILE_UNAVAILABLE_WHILE_OPEN"
+      },
+      "plan": {
+        "present": "operator-attention",
+        "absent": "operator-attention",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
+      }
+    },
+    {
+      "id": "quota-after-horizon-with-profile-unavailable",
+      "description": "r4 R3a is conservative: a PROFILE_UNAVAILABLE anywhere in a job with an open transmission needs attention, even when another merits refusal would rule the open transmission out.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "refused",
+            "code": "QUOTA_EXCEEDED"
+          }
+        },
+        {
+          "issuedAt": 1791000130,
+          "expiresAt": 1791000190,
+          "outcome": {
+            "kind": "refused",
+            "code": "PROFILE_UNAVAILABLE"
+          }
+        }
+      ],
+      "expect": {
+        "status": "attention",
+        "code": "PROFILE_UNAVAILABLE_WHILE_OPEN"
+      },
+      "plan": {
+        "present": "operator-attention",
+        "absent": "operator-attention",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
+      }
+    },
+    {
+      "id": "ledger-continuity-failed",
+      "description": "r4: the harness fails closed (LEDGER_CONTINUITY_FAILED, transmission-only). The job needs attention and is never failed.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "refused",
+            "code": "LEDGER_CONTINUITY_FAILED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "attention",
+        "code": "LEDGER_CONTINUITY_FAILED"
+      },
+      "plan": {
+        "present": "operator-attention",
+        "absent": "operator-attention",
+        "retiredPresent": "operator-attention",
+        "retiredAbsent": "operator-attention"
       }
     }
   ]

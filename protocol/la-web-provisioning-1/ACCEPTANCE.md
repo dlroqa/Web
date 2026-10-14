@@ -21,27 +21,26 @@ the same revision, digest and candidate commit. Until then it is a
 
 | Field | Value |
 |---|---|
-| Revision | `la-web-provisioning-1/r3` |
-| Compatibility digest | `bd410d38aab5890eb8ba97cedbd41a3913046f8d1fd90ff4c6d9a171c9d94a8d` |
-| Candidate commit (Web) | `15f196ca804e7c999a8ace1792443af8ecee3d49` (parent `fbc5c20`, the r2 metadata commit) |
-| Fixture digest | `0190187a77f4950e06a132b8309168d30546989f9971ded379a6e232f8a9a857` |
-| Specification SHA-256 | `1ffc4fe973b0dd5b3d4d39c3f31c4bc84c909031029ce03b48120e399b3d9adc` |
-| Web branch | `l0/la-web-provisioning-r3` (local; the Web repository has no remote) |
-| Portable delivery | `git bundle` of branch `l0/la-web-provisioning-r3` with full ancestry: `/home/agent/Repositories/Web-L0-review/la-web-provisioning-1-r3.bundle`. Its SHA-256 is in the sidecar `.sha256` next to it, not here (the bundle contains this file) |
+| Revision | `la-web-provisioning-1/r4` |
+| Compatibility digest | recorded in the metadata commit that follows the candidate commit |
+| Candidate commit (Web) | recorded in the metadata commit that follows it |
+| Web branch | `l0/la-web-provisioning-r4` (local; the Web repository has no remote) |
+| Portable delivery | recorded in the metadata commit (`git bundle` path; SHA-256 in its sidecar) |
 
 ## Acceptance
 
 | Side | Revision | Compatibility digest | Candidate commit | Reviewer | Date | Verdict |
 |---|---|---|---|---|---|---|
-| Web (`lightagent-control`) | r3 | `bd410d38aab5890eb8ba97cedbd41a3913046f8d1fd90ff4c6d9a171c9d94a8d` | `15f196ca804e7c999a8ace1792443af8ecee3d49` | | 2026-10-13 | proposed candidate; awaiting Lightagent |
-| Lightagent | r3 | | | | | not yet reviewed |
+| Web (`lightagent-control`) | r4 | | | | | candidate, not accepted |
+| Lightagent | r4 | | | | | not yet reviewed |
 
 ## History
 
 | Revision | Digest | Candidate commit | Outcome |
 |---|---|---|---|
 | r1 | `030537b8be8cc003cff31e503343d5082629eab3f3f10c82fb17d7776b24a1d2` | never committed | Rejected by Lightagent (PR #28): RC1–RC4 |
-| r2 | `8649b453d55013cc5d35ed81bc052d219c4afd56eec0d031798f680923248b9a` | `d31e544968447c3f7901f004321c20983e879267` (metadata `fbc5c20`, branch `l0/la-web-provisioning-r2`) | Rejected by Lightagent (PR #28 `7bd1675`): RC5, RC6 |
+| r2 | `8649b453d55013cc5d35ed81bc052d219c4afd56eec0d031798f680923248b9a` | `d31e544968447c3f7901f004321c20983e879267` (metadata `fbc5c20`) | Rejected by Lightagent (PR #28 `7bd1675`): RC5, RC6 |
+| r3 | `bd410d38aab5890eb8ba97cedbd41a3913046f8d1fd90ff4c6d9a171c9d94a8d` | `15f196ca804e7c999a8ace1792443af8ecee3d49` (metadata `227447b`) | Rejected by Lightagent (PR #28 `bcbdcf0`): RC7 |
 
 Any change to the specification or a fixture produces a new digest and voids
 earlier acceptance rows for that revision.

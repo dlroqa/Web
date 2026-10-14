@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r3",
+  "fixtureSet": "la-web-provisioning-1/r4",
   "kind": "keys",
   "warning": "TEST-ONLY. Every seed is SHA-256 of a public label. Never trust these keys on any real harness.",
   "derivation": "seed = SHA-256(UTF-8 label); publicKey = Ed25519 public key of seed (RFC 8032).",

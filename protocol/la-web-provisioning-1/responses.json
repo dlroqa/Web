@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r3",
+  "fixtureSet": "la-web-provisioning-1/r4",
   "kind": "responses",
   "description": "How Web classifies a harness answer to the command named by `request` (from commands-valid.json). `body` is the exact UTF-8 response body. Lightagent's gateway must only produce bodies that classify as `operation` or `refused`.",
   "vectors": [

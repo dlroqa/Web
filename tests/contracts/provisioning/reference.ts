@@ -736,6 +736,8 @@ export const ERRORS: readonly ErrorDefinition[] = [
     "From §10 step 12 (admission), or for profile.create from step 14 (execution deadline re-checked under the ledger lock). Either way this transmission had no effect."),
   def("REPLAY_DETECTED", 409, "indeterminate", ALL, ["gateway"]),
   def("NONCE_STORE_UNAVAILABLE", 503, "protocol", ALL, ["gateway"]),
+  def("LEDGER_CONTINUITY_FAILED", 503, "protocol", ALL, ["gateway"],
+    "r4 (A9): the gateway fails closed because this harness id is retired or its provisioning ledger's continuity with the identity and profile stores cannot be established (§10.6). Transmission-only: never evidence; Web stops new operations to the harness and raises operator attention."),
   def("INVALID_PROFILE_ID", 400, "payload", ALL, ["invalid_profile_id"]),
   def("RESERVED_PROFILE_ID", 400, "payload", CREATE, ["reserved_profile_id"]),
   def("INVALID_ISSUER", 400, "payload", CREATE, ["invalid_issuer"]),
@@ -911,6 +913,12 @@ export interface ResolutionOptions {
    * transmission may still take effect. Kept only to reproduce r2 in models.
    */
   protocolRefusalsFinal?: boolean;
+  /**
+   * r3 let a PROFILE_UNAVAILABLE merits refusal rule out open transmissions.
+   * r4 does not (§13.2 R3a): with an open transmission it signals a possible
+   * ledger discontinuity (A9) and the job needs operator attention.
+   */
+  profileUnavailableRulesOut?: boolean;
 }
 
 /**
@@ -932,15 +940,19 @@ export function resolveCreateJob(transmissions: readonly Transmission[], options
   const payloadRefusal = refusals.find((r) => classOf(r.code) === "payload");
   if (payloadRefusal) return { status: "failed", code: payloadRefusal.code };
   if (refusals.length === 0) return { status: "unresolved" };
+  if (refusals.some((r) => r.code === "LEDGER_CONTINUITY_FAILED")) return { status: "attention", code: "LEDGER_CONTINUITY_FAILED" };
 
   // Every transmission that is not finally refused (uncertain, or refused
   // only for this copy) must be ruled out by a merits refusal of a
   // transmission issued at or after its acceptance horizon (§13.2 rule R3).
   const finalRefusal = (code: string) => classOf(code) !== "protocol" || options.protocolRefusalsFinal === true;
-  const merits = refusals.filter((r) => classOf(r.code) === "merits");
-  const ruledOut = transmissions
-    .filter((t) => t.outcome.kind === "uncertain" || (t.outcome.kind === "refused" && !finalRefusal(t.outcome.code)))
-    .every((u) => merits.some((m) => m.issuedAt >= u.expiresAt + ACCEPTANCE_HORIZON_SECONDS));
+  const open = transmissions.filter((t) => t.outcome.kind === "uncertain" || (t.outcome.kind === "refused" && !finalRefusal(t.outcome.code)));
+  const profileUnavailableRulesOut = options.profileUnavailableRulesOut === true;
+  if (!profileUnavailableRulesOut && open.length > 0 && refusals.some((r) => r.code === "PROFILE_UNAVAILABLE")) {
+    return { status: "attention", code: "PROFILE_UNAVAILABLE_WHILE_OPEN" };
+  }
+  const merits = refusals.filter((r) => classOf(r.code) === "merits" && (profileUnavailableRulesOut || r.code !== "PROFILE_UNAVAILABLE"));
+  const ruledOut = open.every((u) => merits.some((m) => m.issuedAt >= u.expiresAt + ACCEPTANCE_HORIZON_SECONDS));
   if (!ruledOut) return { status: "unresolved" };
   const latest = refusals.reduce((a, b) => (b.issuedAt >= a.issuedAt ? b : a));
   return { status: "failed", code: latest.code };
@@ -1116,21 +1128,32 @@ export interface OrderingRules {
   protocolRefusalsFinal: boolean;
   /** RC6: every transmission that can reach the harness is journaled before it is sent. */
   journalBeforeSend: boolean;
+  /** r3 §10.5: a restore raises the fence to T + 150 (T = verified time of the restore). */
+  restoreRaisesFence: boolean;
+  /** r4 A9/§10.6: the gateway fails closed when the ledger no longer matches the identity store. */
+  ledgerContinuityCheck: boolean;
+  /** r3 Web rule; r4 (R3a): PROFILE_UNAVAILABLE never rules out an open transmission. */
+  profileUnavailableRulesOut: boolean;
 }
 
 export const RULES_R2: OrderingRules = {
   executionDeadline: true, fence: false, fenceDurableBeforeUnlock: false, nonceDurable: false,
   nonceRetainedUntilFenced: false, protocolRefusalsFinal: true, journalBeforeSend: false,
+  restoreRaisesFence: false, ledgerContinuityCheck: false, profileUnavailableRulesOut: true,
 };
 /** RC5 and RC6 exactly as the r2 review words them (fence durable "before the answer", nonce rules from r2). */
 export const RULES_REVIEW_PROPOSAL: OrderingRules = {
   executionDeadline: true, fence: true, fenceDurableBeforeUnlock: false, nonceDurable: false,
   nonceRetainedUntilFenced: false, protocolRefusalsFinal: true, journalBeforeSend: true,
+  restoreRaisesFence: false, ledgerContinuityCheck: false, profileUnavailableRulesOut: true,
 };
 export const RULES_R3: OrderingRules = {
   executionDeadline: true, fence: true, fenceDurableBeforeUnlock: true, nonceDurable: true,
   nonceRetainedUntilFenced: true, protocolRefusalsFinal: false, journalBeforeSend: true,
+  restoreRaisesFence: true, ledgerContinuityCheck: false, profileUnavailableRulesOut: true,
 };
+/** This revision: r3 plus ledger continuity (A9, §10.6) and R3a. */
+export const RULES_R4: OrderingRules = { ...RULES_R3, ledgerContinuityCheck: true, profileUnavailableRulesOut: false };
 
 export interface ModelTransmission {
   /** Web stamps. Real time is Web's clock. */
@@ -1168,6 +1191,14 @@ export interface OrderingScenario {
   restarts?: readonly number[];
   /** Real times at which the harness runs nonce housekeeping (only then; safety must not depend on when it runs). */
   housekeeping?: readonly number[];
+  /**
+   * Recoveries (§10.5, §10.6). The harness stops (queued calls die), the named
+   * stores are reset to an earlier point that predates every operation and
+   * nonce in the model ("ledger": operations; "identity": ownership bindings
+   * and provisioning transaction records; "nonces"; "fence": to `fenceTo`,
+   * default 0), and the harness starts again at `at`.
+   */
+  recoveries?: ReadonlyArray<{ at: number; restore: ReadonlyArray<"ledger" | "identity" | "nonces" | "fence">; fenceTo?: number }>;
 }
 
 export interface OrderingResult {
@@ -1175,6 +1206,10 @@ export interface OrderingResult {
   answers: string[];
   /** Operation for the key at the end, and the transmission whose call recorded it. */
   operation: { state: OperationState; recordedBy: number } | null;
+  /** Owner binding (identity store) at the end, and the transmission whose call created it. */
+  binding: { createdBy: number } | null;
+  /** Whether the gateway was failing closed at the end (§10.6). */
+  failedClosed: boolean;
   /** Web's resolution after the last answer. */
   web: CreateResolution;
   /** Earliest real time at which Web concluded `failed`, if ever. */
@@ -1199,9 +1234,11 @@ export function simulateOrdering(scenario: OrderingScenario, rules: OrderingRule
     if (!firstCopy.has(d.transmission)) firstCopy.set(d.transmission, i);
   });
 
-  // Kinds, in tie order: 0 restart, 1 housekeeping, 2 arrival (steps 1–12), 3 lock (steps 13–16).
-  type Event = { time: number; kind: 0 | 1 | 2 | 3; index: number };
+  // Kinds, in tie order: -1 recovery, 0 restart, 1 housekeeping, 2 arrival (steps 1–12), 3 lock (steps 13–16).
+  type Event = { time: number; kind: -1 | 0 | 1 | 2 | 3; index: number };
+  const recoveries = scenario.recoveries ?? [];
   const events: Event[] = [
+    ...recoveries.map((r, index) => ({ time: r.at, kind: -1 as const, index })),
     ...restarts.map((time, index) => ({ time, kind: 0 as const, index })),
     ...(scenario.housekeeping ?? []).map((time, index) => ({ time, kind: 1 as const, index })),
     ...scenario.deliveries.map((d, index) => ({ time: d.arrivesAt, kind: 2 as const, index })),
@@ -1216,6 +1253,8 @@ export function simulateOrdering(scenario: OrderingScenario, rules: OrderingRule
   const pendingFence: Array<{ value: number; visibleAt: number }> = [];
   let lockFreeAt = -Infinity;
   let operation: { state: OperationState; recordedBy: number } | null = null;
+  let binding: { createdBy: number } | null = null;
+  let failedClosed = false;
 
   const visibleFence = (t: number) => {
     for (let i = pendingFence.length - 1; i >= 0; i -= 1) {
@@ -1243,6 +1282,22 @@ export function simulateOrdering(scenario: OrderingScenario, rules: OrderingRule
   for (const event of events) {
     visibleFence(event.time);
     if (event.kind === 1) purgeNonces(event.time);
+    if (event.kind === -1) {
+      // The harness was stopped for the recovery: queued calls die, pending fence writes are lost.
+      const recovery = recoveries[event.index] as { at: number; restore: ReadonlyArray<string>; fenceTo?: number };
+      for (const index of queued) answers[index] = "KILLED";
+      queued.clear();
+      pendingFence.length = 0;
+      if (recovery.restore.includes("ledger")) operation = null;
+      if (recovery.restore.includes("identity")) binding = null;
+      if (recovery.restore.includes("nonces")) nonces.clear();
+      if (recovery.restore.includes("fence")) fence = recovery.fenceTo ?? 0;
+      if (rules.restoreRaisesFence) fence = Math.max(fence, recovery.at + 150);
+      // §10.6 C2/C3: a binding whose operation the ledger lost, or a completed operation the identity store lost.
+      const inconsistent = (binding !== null && operation === null) || (operation?.state === "completed" && binding === null);
+      if (rules.ledgerContinuityCheck && inconsistent) failedClosed = true;
+      continue;
+    }
     if (event.kind === 0) {
       for (const index of queued) answers[index] = "KILLED";
       queued.clear();
@@ -1260,7 +1315,8 @@ export function simulateOrdering(scenario: OrderingScenario, rules: OrderingRule
         answers[event.index] = code;
         answeredAt[event.index] = event.time;
       };
-      if (scenario.keyTrustedFrom !== undefined && event.time < scenario.keyTrustedFrom) refuse("UNKNOWN_KEY");
+      if (failedClosed) refuse("LEDGER_CONTINUITY_FAILED");
+      else if (scenario.keyTrustedFrom !== undefined && event.time < scenario.keyTrustedFrom) refuse("UNKNOWN_KEY");
       else if (tx.issuedAt > now + MAX_CLOCK_SKEW_SECONDS) refuse("NOT_YET_VALID");
       else if (now >= tx.expiresAt + MAX_CLOCK_SKEW_SECONDS) refuse("EXPIRED");
       else if (nonces.has(delivery.transmission)) refuse("REPLAY_DETECTED");
@@ -1292,15 +1348,20 @@ export function simulateOrdering(scenario: OrderingScenario, rules: OrderingRule
     if (recorded !== null) {
       // Idempotency hit: resume drives a recorded operation to its terminal state.
       const state: OperationState = recorded.state === "pending" ? "completed" : recorded.state;
+      if (recorded.state === "pending" && binding === null) binding = { createdBy: recorded.recordedBy };
       operation = { state, recordedBy: recorded.recordedBy };
       answers[event.index] = `OPERATION:${state}`;
     } else if (!quotaAt(lockAt)) {
       answers[event.index] = "QUOTA_EXCEEDED";
+    } else if (binding !== null) {
+      // PR #26 begin: the profile id is known to the identity store although this ledger has no operation.
+      answers[event.index] = "PROFILE_UNAVAILABLE";
     } else if (delivery.crashAfterRecord) {
       operation = { state: "pending", recordedBy: delivery.transmission };
       answers[event.index] = "STORAGE_UNAVAILABLE";
     } else {
       operation = { state: "completed", recordedBy: delivery.transmission };
+      binding = { createdBy: delivery.transmission };
       answers[event.index] = `OPERATION:${operation.state}`;
     }
   }
@@ -1321,19 +1382,23 @@ export function simulateOrdering(scenario: OrderingScenario, rules: OrderingRule
     scenario.transmissions.flatMap((tx, index) =>
       tx.issuedAt <= t && (rules.journalBeforeSend || tx.journaled !== false) ? [{ issuedAt: tx.issuedAt, expiresAt: tx.expiresAt, outcome: outcomeAt(index, t) }] : [],
     );
+  const webOptions: ResolutionOptions = { protocolRefusalsFinal: rules.protocolRefusalsFinal, profileUnavailableRulesOut: rules.profileUnavailableRulesOut };
   const checkpoints = [...new Set([...answeredAt.filter(Number.isFinite), ...scenario.transmissions.map((tx) => tx.issuedAt)])].sort((a, b) => a - b);
   let failedAt: number | null = null;
   for (const t of checkpoints) {
-    if (resolveCreateJob(view(t), { protocolRefusalsFinal: rules.protocolRefusalsFinal }).status === "failed") {
+    if (resolveCreateJob(view(t), webOptions).status === "failed") {
       failedAt = t;
       break;
     }
   }
   const end = checkpoints.length > 0 ? (checkpoints[checkpoints.length - 1] as number) : 0;
-  const web = resolveCreateJob(view(end), { protocolRefusalsFinal: rules.protocolRefusalsFinal });
-  const recordedBy = operation === null ? null : (scenario.transmissions[operation.recordedBy] as ModelTransmission);
-  const unsafe = failedAt !== null && recordedBy !== null && recordedBy.issuedAt <= failedAt;
-  return { answers, operation, web, failedAt, unsafe };
+  const web = resolveCreateJob(view(end), webOptions);
+  const issuedBy = (index: number | undefined) => (index === undefined ? null : (scenario.transmissions[index] as ModelTransmission).issuedAt);
+  const recordedAt = issuedBy(operation?.recordedBy);
+  const boundAt = issuedBy(binding?.createdBy);
+  // Unsafe: Web concluded failed while an operation or an owner binding from a transmission issued by then exists.
+  const unsafe = failedAt !== null && ((recordedAt !== null && recordedAt <= failedAt) || (boundAt !== null && boundAt <= failedAt));
+  return { answers, operation, binding, failedClosed, web, failedAt, unsafe };
 }
 
 /** Rule sets the ordering fixtures and randomized tests evaluate: r2, the review's proposal, r3, and r3 minus each rule. */
@@ -1341,6 +1406,10 @@ export const RULE_SETS: Readonly<Record<string, OrderingRules>> = {
   r2: RULES_R2,
   reviewProposal: RULES_REVIEW_PROPOSAL,
   r3: RULES_R3,
+  r4: RULES_R4,
+  "r4-without-continuity-check": { ...RULES_R4, ledgerContinuityCheck: false },
+  "r4-profile-unavailable-rules-out": { ...RULES_R4, profileUnavailableRulesOut: true },
+  "r4-restore-without-fence-raise": { ...RULES_R4, restoreRaisesFence: false },
   "r3-without-wall-clock-deadline": { ...RULES_R3, executionDeadline: false },
   "r3-without-fence": { ...RULES_R3, fence: false },
   "r3-fence-durable-only-after-unlock": { ...RULES_R3, fenceDurableBeforeUnlock: false },
@@ -1362,7 +1431,18 @@ export type ReconciliationStep = "send-create" | "revoke" | "confirm-status" | "
  * the same logical command, even when the desired state is absent: Web must
  * learn the operation id before it can revoke it.
  */
-export function planReconciliation(resolution: CreateResolution, desired: "present" | "absent"): ReconciliationStep {
+export function planReconciliation(
+  resolution: CreateResolution,
+  desired: "present" | "absent",
+  harness: "active" | "retired" = "active",
+): ReconciliationStep {
+  // §10.6: Web sends nothing to a retired harness id and never fails or migrates its jobs on its own.
+  if (harness === "retired") {
+    if (resolution.status === "failed") return "none";
+    if (resolution.status === "resolved" && resolution.state === "revoked" && desired === "absent") return "none";
+    if (resolution.status === "resolved" && resolution.state === "failed" && desired === "present") return "none";
+    return "operator-attention";
+  }
   switch (resolution.status) {
     case "unresolved":
       return "send-create";
@@ -1376,4 +1456,53 @@ export function planReconciliation(resolution: CreateResolution, desired: "prese
       if (resolution.state === "revoked") return desired === "absent" ? "none" : "operator-attention";
       return "send-create";
   }
+}
+
+// ---------------------------------------------------------------------------
+// §10.6 Ledger continuity check (A9): the gateway's fail-closed activation check
+// ---------------------------------------------------------------------------
+
+/**
+ * What the harness can see at gateway start or activation. Operation ids are
+ * PR #26's: the ledger's operations, the identity store's provisioning
+ * transaction records (`provisioning:<op>`), and the profile store's
+ * `.provisioning-operation` markers.
+ */
+export interface ContinuityInput {
+  configuredHarnessId: string;
+  /** null: no ledger file. */
+  ledger: null | {
+    /** The harness id stamped at explicit operator initialization; null if never stamped (e.g. auto-created). */
+    harnessId: string | null;
+    retired: boolean;
+    operations: ReadonlyArray<{ operationId: string; state: OperationState }>;
+  };
+  identityProvisioningRecords: readonly string[];
+  profileMarkers: readonly string[];
+}
+
+export type ContinuityVerdict = { serve: true } | { serve: false; reason: "NO_LEDGER" | "UNSTAMPED_LEDGER" | "HARNESS_ID_MISMATCH" | "RETIRED" | "LEDGER_BEHIND_STORES" | "STORES_BEHIND_LEDGER" };
+
+/**
+ * §10.6 C1–C3. Never infers a clean state from absence: a missing or
+ * unstamped ledger fails closed even when every other store is empty, because
+ * only an explicit operator initialization establishes a new harness id.
+ */
+export function checkLedgerContinuity(input: ContinuityInput): ContinuityVerdict {
+  const { ledger } = input;
+  if (ledger === null) return { serve: false, reason: "NO_LEDGER" };
+  if (ledger.harnessId === null) return { serve: false, reason: "UNSTAMPED_LEDGER" };
+  if (ledger.harnessId !== input.configuredHarnessId) return { serve: false, reason: "HARNESS_ID_MISMATCH" };
+  if (ledger.retired) return { serve: false, reason: "RETIRED" };
+  const known = new Set(ledger.operations.map((o) => o.operationId));
+  // C2: every operation the identity or profile store references is in the ledger.
+  if ([...input.identityProvisioningRecords, ...input.profileMarkers].some((id) => !known.has(id))) {
+    return { serve: false, reason: "LEDGER_BEHIND_STORES" };
+  }
+  // C3: every operation that reached its identity transaction has its record in the identity store.
+  const identity = new Set(input.identityProvisioningRecords);
+  if (ledger.operations.some((o) => (o.state === "completed" || o.state === "revoked") && !identity.has(o.operationId))) {
+    return { serve: false, reason: "STORES_BEHIND_LEDGER" };
+  }
+  return { serve: true };
 }
