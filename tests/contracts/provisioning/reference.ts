@@ -676,15 +676,40 @@ export interface ErrorDefinition {
   operations: readonly Operation[];
   /** Lightagent source codes this maps from; "gateway" codes are new in the L2 gateway. */
   lightagent: readonly string[];
+  /**
+   * What a refusal with this code lets Web conclude for profile.create (§13.2):
+   * "final": no copy of this transmission can ever take effect;
+   * "transmission-only": this copy had no effect, other copies still may;
+   * "indeterminate": this copy may have taken effect; "conflict": a Web defect;
+   * "not-applicable": never answers profile.create.
+   */
+  createResolution: "final" | "transmission-only" | "indeterminate" | "conflict" | "not-applicable";
   note?: string;
 }
+
+/**
+ * Refusals after the nonce is durably recorded (§10 steps 13–16) are final for
+ * every copy (§9.2). Protocol-class refusals come before it, or are ambiguous
+ * (EXPIRED at step 12 or 14), and depend on configuration or the clock.
+ */
+const CREATE_RESOLUTION: Readonly<Record<ErrorClass, ErrorDefinition["createResolution"]>> = {
+  protocol: "transmission-only",
+  payload: "final",
+  admission: "final",
+  merits: "final",
+  operation: "not-applicable",
+  conflict: "conflict",
+  indeterminate: "indeterminate",
+};
 
 const ALL: readonly Operation[] = OPERATIONS;
 const CREATE: readonly Operation[] = ["profile.create"];
 const BY_OPERATION: readonly Operation[] = ["profile.status", "profile.revoke"];
 const def = (
   code: string, http: number, cls: ErrorClass, operations: readonly Operation[], lightagent: readonly string[], note?: string,
-): ErrorDefinition => ({ code, http, class: cls, operations, lightagent, ...(note === undefined ? {} : { note }) });
+): ErrorDefinition => ({
+  code, http, class: cls, operations, lightagent, createResolution: CREATE_RESOLUTION[cls], ...(note === undefined ? {} : { note }),
+});
 
 export const ERRORS: readonly ErrorDefinition[] = [
   def("METHOD_NOT_ALLOWED", 405, "protocol", ALL, ["gateway"]),
@@ -879,11 +904,21 @@ export type CreateResolution =
 
 const classOf = (code: string) => ERRORS.find((e) => e.code === code)?.class;
 
+export interface ResolutionOptions {
+  /**
+   * r2 treated protocol-class refusals as final. r3 does not (§13.2): they are
+   * refused before the nonce is durably recorded, so another copy of the same
+   * transmission may still take effect. Kept only to reproduce r2 in models.
+   */
+  protocolRefusalsFinal?: boolean;
+}
+
 /**
  * Decide what Web may conclude about one profile.create job from every
- * transmission it made (§13.2). Exhausted retries never produce `failed`.
+ * journaled transmission (§13.2, §13.10). Exhausted retries never produce
+ * `failed`.
  */
-export function resolveCreateJob(transmissions: readonly Transmission[]): CreateResolution {
+export function resolveCreateJob(transmissions: readonly Transmission[], options: ResolutionOptions = {}): CreateResolution {
   const operations = transmissions.flatMap((t) => (t.outcome.kind === "operation" ? [t.outcome] : []));
   if (operations.length > 0) {
     const first = operations[0] as { operationId: string; state: OperationState };
@@ -898,11 +933,13 @@ export function resolveCreateJob(transmissions: readonly Transmission[]): Create
   if (payloadRefusal) return { status: "failed", code: payloadRefusal.code };
   if (refusals.length === 0) return { status: "unresolved" };
 
-  // Every uncertain transmission must be ruled out by a merits refusal of a
-  // transmission issued after that one's acceptance horizon (§13.2 rule R3).
+  // Every transmission that is not finally refused (uncertain, or refused
+  // only for this copy) must be ruled out by a merits refusal of a
+  // transmission issued at or after its acceptance horizon (§13.2 rule R3).
+  const finalRefusal = (code: string) => classOf(code) !== "protocol" || options.protocolRefusalsFinal === true;
   const merits = refusals.filter((r) => classOf(r.code) === "merits");
   const ruledOut = transmissions
-    .filter((t) => t.outcome.kind === "uncertain")
+    .filter((t) => t.outcome.kind === "uncertain" || (t.outcome.kind === "refused" && !finalRefusal(t.outcome.code)))
     .every((u) => merits.some((m) => m.issuedAt >= u.expiresAt + ACCEPTANCE_HORIZON_SECONDS));
   if (!ruledOut) return { status: "unresolved" };
   const latest = refusals.reduce((a, b) => (b.issuedAt >= a.issuedAt ? b : a));
@@ -940,9 +977,19 @@ export function executionDeadline(command: Pick<Command, "expiresAt">): number {
   return command.expiresAt + MAX_CLOCK_SKEW_SECONDS;
 }
 
-/** §10 step 14: re-read the clock after acquiring the ledger lock, before the idempotency lookup. */
-export function checkExecutionDeadline(command: Pick<Command, "expiresAt">, lockAcquiredAt: number): "proceed" | "EXPIRED" {
-  return lockAcquiredAt >= executionDeadline(command) ? "EXPIRED" : "proceed";
+/**
+ * §10 step 14: after acquiring the ledger lock and before the idempotency
+ * lookup, refuse when the harness clock or the durable execution fence (RC5)
+ * has reached the command's execution deadline.
+ */
+export function checkExecutionDeadline(command: Pick<Command, "expiresAt">, lockAcquiredAt: number, fence = 0): "proceed" | "EXPIRED" {
+  const deadline = executionDeadline(command);
+  return lockAcquiredAt >= deadline || deadline <= fence ? "EXPIRED" : "proceed";
+}
+
+/** RC5: the fence value after a create passes §10 step 15 (never decreases). */
+export function advanceFence(fence: number, command: Pick<Command, "issuedAt">): number {
+  return Math.max(fence, command.issuedAt - MAX_CLOCK_SKEW_SECONDS);
 }
 
 /**
@@ -1043,4 +1090,290 @@ export function simulateCreateRace(scenario: RaceScenario): RaceResult {
   });
   const web = resolveCreateJob(transmissions.map(({ issuedAt, expiresAt, outcome }) => ({ issuedAt, expiresAt, outcome })));
   return { harness, operation, web, unsafe: web.status === "failed" && operation !== null };
+}
+
+// ---------------------------------------------------------------------------
+// §13.2 Ordering model (RC5, RC6): one harness, one profile.create job
+// ---------------------------------------------------------------------------
+
+/**
+ * Which rules the harness and Web follow. RULES_R3 is this revision; the
+ * others reproduce r2 and the review's proposal so each counterexample can be
+ * shown against the rule set it defeats.
+ */
+export interface OrderingRules {
+  /** §10 step 14 wall-clock check (r2). */
+  executionDeadline: boolean;
+  /** RC5: step 14 also refuses when expiresAt + 30 ≤ fence; step 15 advances the fence. */
+  fence: boolean;
+  /** RC5: the fence advance is durable before the ledger lock is released (otherwise only after it). */
+  fenceDurableBeforeUnlock: boolean;
+  /** §9.2: nonce records survive a harness restart. */
+  nonceDurable: boolean;
+  /** §9.2: a nonce record is discarded only once fence ≥ expiresAt + 30 (otherwise by wall clock). */
+  nonceRetainedUntilFenced: boolean;
+  /** r2 Web rule: protocol-class refusals count as final (r3: they do not). */
+  protocolRefusalsFinal: boolean;
+  /** RC6: every transmission that can reach the harness is journaled before it is sent. */
+  journalBeforeSend: boolean;
+}
+
+export const RULES_R2: OrderingRules = {
+  executionDeadline: true, fence: false, fenceDurableBeforeUnlock: false, nonceDurable: false,
+  nonceRetainedUntilFenced: false, protocolRefusalsFinal: true, journalBeforeSend: false,
+};
+/** RC5 and RC6 exactly as the r2 review words them (fence durable "before the answer", nonce rules from r2). */
+export const RULES_REVIEW_PROPOSAL: OrderingRules = {
+  executionDeadline: true, fence: true, fenceDurableBeforeUnlock: false, nonceDurable: false,
+  nonceRetainedUntilFenced: false, protocolRefusalsFinal: true, journalBeforeSend: true,
+};
+export const RULES_R3: OrderingRules = {
+  executionDeadline: true, fence: true, fenceDurableBeforeUnlock: true, nonceDurable: true,
+  nonceRetainedUntilFenced: true, protocolRefusalsFinal: false, journalBeforeSend: true,
+};
+
+export interface ModelTransmission {
+  /** Web stamps. Real time is Web's clock. */
+  issuedAt: number;
+  expiresAt: number;
+  /** False: the Worker sent it but never journaled it (only possible without RC6). */
+  journaled?: boolean;
+}
+
+/** One copy of a transmission reaching the harness (network duplicates are further copies). */
+export interface ModelDelivery {
+  transmission: number;
+  /** Real time of §10 steps 1–12. */
+  arrivesAt: number;
+  /** Real time the ledger lock is acquired (steps 13–16); defaults to arrivesAt. */
+  lockAt?: number;
+  /** Seconds the lock is held (≥ 1); the answer leaves at lockAt + holdFor. */
+  holdFor?: number;
+  /** Whether Web receives this copy's answer (default: only the first copy of each transmission). */
+  answerToWeb?: boolean;
+  /** The call records the operation and then fails with an indeterminate error. */
+  crashAfterRecord?: boolean;
+}
+
+export interface OrderingScenario {
+  transmissions: readonly ModelTransmission[];
+  deliveries: readonly ModelDelivery[];
+  /** Harness clock = real time + offset; each entry applies from real time `from` (sorted). */
+  harnessClock?: ReadonlyArray<{ from: number; offset: number }>;
+  /** Real-time intervals [from, to) in which the quota admits a new profile. */
+  quota: ReadonlyArray<readonly [number, number]>;
+  /** Before this real time the signing key is not yet trusted (UNKNOWN_KEY, refused before the nonce). */
+  keyTrustedFrom?: number;
+  /** Real times of harness restarts: queued calls die, non-durable state is lost. */
+  restarts?: readonly number[];
+  /** Real times at which the harness runs nonce housekeeping (only then; safety must not depend on when it runs). */
+  housekeeping?: readonly number[];
+}
+
+export interface OrderingResult {
+  /** The answer each delivery produced ("KILLED" if a restart ended it while queued). */
+  answers: string[];
+  /** Operation for the key at the end, and the transmission whose call recorded it. */
+  operation: { state: OperationState; recordedBy: number } | null;
+  /** Web's resolution after the last answer. */
+  web: CreateResolution;
+  /** Earliest real time at which Web concluded `failed`, if ever. */
+  failedAt: number | null;
+  /** Web concluded `failed` although an operation was recorded by a transmission issued by then. */
+  unsafe: boolean;
+}
+
+/**
+ * Event-driven model of one harness and one create job. It encodes P2 (calls
+ * serialized by the ledger lock), P3 (record before effect), P4 (terminal
+ * create answers), the §10 step order, §9.2 nonces and the RC5 fence. It does
+ * not model signatures: every delivery is a validly signed copy.
+ */
+export function simulateOrdering(scenario: OrderingScenario, rules: OrderingRules): OrderingResult {
+  const clock = [...(scenario.harnessClock ?? [{ from: -Infinity, offset: 0 }])];
+  const h = (t: number) => clock.reduce((offset, step) => (t >= step.from ? step.offset : offset), 0) + t;
+  const quotaAt = (t: number) => scenario.quota.some(([from, to]) => t >= from && t < to);
+  const restarts = [...(scenario.restarts ?? [])].sort((a, b) => a - b);
+  const firstCopy = new Map<number, number>();
+  scenario.deliveries.forEach((d, i) => {
+    if (!firstCopy.has(d.transmission)) firstCopy.set(d.transmission, i);
+  });
+
+  // Kinds, in tie order: 0 restart, 1 housekeeping, 2 arrival (steps 1–12), 3 lock (steps 13–16).
+  type Event = { time: number; kind: 0 | 1 | 2 | 3; index: number };
+  const events: Event[] = [
+    ...restarts.map((time, index) => ({ time, kind: 0 as const, index })),
+    ...(scenario.housekeeping ?? []).map((time, index) => ({ time, kind: 1 as const, index })),
+    ...scenario.deliveries.map((d, index) => ({ time: d.arrivesAt, kind: 2 as const, index })),
+    ...scenario.deliveries.map((d, index) => ({ time: d.lockAt ?? d.arrivesAt, kind: 3 as const, index })),
+  ].sort((a, b) => a.time - b.time || a.kind - b.kind || a.index - b.index);
+
+  const answers: string[] = scenario.deliveries.map(() => "NOT_RECEIVED");
+  const answeredAt: number[] = scenario.deliveries.map(() => Infinity);
+  const queued = new Set<number>();
+  const nonces = new Map<number, { expiresAt: number; durable: boolean }>();
+  let fence = 0;
+  const pendingFence: Array<{ value: number; visibleAt: number }> = [];
+  let lockFreeAt = -Infinity;
+  let operation: { state: OperationState; recordedBy: number } | null = null;
+
+  const visibleFence = (t: number) => {
+    for (let i = pendingFence.length - 1; i >= 0; i -= 1) {
+      const p = pendingFence[i] as { value: number; visibleAt: number };
+      if (p.visibleAt <= t) {
+        fence = Math.max(fence, p.value);
+        pendingFence.splice(i, 1);
+      }
+    }
+    return fence;
+  };
+  const purgeNonces = (t: number) => {
+    const now = h(t);
+    for (const [key, record] of nonces) {
+      if (now < record.expiresAt + MAX_CLOCK_SKEW_SECONDS) continue;
+      if (!rules.nonceRetainedUntilFenced) nonces.delete(key);
+      else if (rules.fence) {
+        // §9.2: raise the fence durably first, then discard the record.
+        fence = Math.max(visibleFence(t), record.expiresAt + MAX_CLOCK_SKEW_SECONDS);
+        nonces.delete(key);
+      }
+    }
+  };
+
+  for (const event of events) {
+    visibleFence(event.time);
+    if (event.kind === 1) purgeNonces(event.time);
+    if (event.kind === 0) {
+      for (const index of queued) answers[index] = "KILLED";
+      queued.clear();
+      for (const [key, record] of nonces) if (!record.durable) nonces.delete(key);
+      // A fence advance not yet durable is lost with the process.
+      pendingFence.length = 0;
+      continue;
+    }
+    if (event.kind === 1) continue;
+    const delivery = scenario.deliveries[event.index] as ModelDelivery;
+    const tx = scenario.transmissions[delivery.transmission] as ModelTransmission;
+    if (event.kind === 2) {
+      const now = h(event.time);
+      const refuse = (code: string) => {
+        answers[event.index] = code;
+        answeredAt[event.index] = event.time;
+      };
+      if (scenario.keyTrustedFrom !== undefined && event.time < scenario.keyTrustedFrom) refuse("UNKNOWN_KEY");
+      else if (tx.issuedAt > now + MAX_CLOCK_SKEW_SECONDS) refuse("NOT_YET_VALID");
+      else if (now >= tx.expiresAt + MAX_CLOCK_SKEW_SECONDS) refuse("EXPIRED");
+      else if (nonces.has(delivery.transmission)) refuse("REPLAY_DETECTED");
+      else {
+        nonces.set(delivery.transmission, { expiresAt: tx.expiresAt, durable: rules.nonceDurable });
+        queued.add(event.index);
+      }
+      continue;
+    }
+    if (!queued.has(event.index)) continue;
+    queued.delete(event.index);
+    const lockAt = event.time;
+    const hold = delivery.holdFor ?? 1;
+    if (lockAt < delivery.arrivesAt || lockAt < lockFreeAt || hold < 1) throw new Error(`delivery ${event.index}: lock order violated`);
+    lockFreeAt = lockAt + hold;
+    answeredAt[event.index] = lockAt + hold;
+    const now = h(lockAt);
+    const deadline = tx.expiresAt + MAX_CLOCK_SKEW_SECONDS;
+    if ((rules.executionDeadline && now >= deadline) || (rules.fence && deadline <= visibleFence(lockAt))) {
+      answers[event.index] = "EXPIRED";
+      continue;
+    }
+    if (rules.fence) {
+      const value = Math.max(fence, tx.issuedAt - MAX_CLOCK_SKEW_SECONDS);
+      if (rules.fenceDurableBeforeUnlock) fence = value;
+      else pendingFence.push({ value, visibleAt: lockAt + hold + 1 });
+    }
+    const recorded = operation as { state: OperationState; recordedBy: number } | null;
+    if (recorded !== null) {
+      // Idempotency hit: resume drives a recorded operation to its terminal state.
+      const state: OperationState = recorded.state === "pending" ? "completed" : recorded.state;
+      operation = { state, recordedBy: recorded.recordedBy };
+      answers[event.index] = `OPERATION:${state}`;
+    } else if (!quotaAt(lockAt)) {
+      answers[event.index] = "QUOTA_EXCEEDED";
+    } else if (delivery.crashAfterRecord) {
+      operation = { state: "pending", recordedBy: delivery.transmission };
+      answers[event.index] = "STORAGE_UNAVAILABLE";
+    } else {
+      operation = { state: "completed", recordedBy: delivery.transmission };
+      answers[event.index] = `OPERATION:${operation.state}`;
+    }
+  }
+
+  // Web's view: journaled transmissions, outcomes from the answers it received so far.
+  const outcomeAt = (index: number, t: number): TransmissionOutcome => {
+    const d = firstCopy.get(index);
+    const delivered = scenario.deliveries
+      .map((delivery, i) => ({ delivery, i }))
+      .filter(({ delivery, i }) => delivery.transmission === index && (delivery.answerToWeb ?? i === d) && (answeredAt[i] ?? Infinity) <= t);
+    const answer = delivered.length > 0 ? (answers[(delivered[0] as { i: number }).i] as string) : "NOT_RECEIVED";
+    if (answer.startsWith("OPERATION:")) return { kind: "operation", operationId: "0".repeat(32), state: answer.slice(10) as OperationState };
+    const definition = ERRORS.find((e) => e.code === answer);
+    if (!definition || definition.class === "indeterminate") return { kind: "uncertain" };
+    return { kind: "refused", code: answer };
+  };
+  const view = (t: number): Transmission[] =>
+    scenario.transmissions.flatMap((tx, index) =>
+      tx.issuedAt <= t && (rules.journalBeforeSend || tx.journaled !== false) ? [{ issuedAt: tx.issuedAt, expiresAt: tx.expiresAt, outcome: outcomeAt(index, t) }] : [],
+    );
+  const checkpoints = [...new Set([...answeredAt.filter(Number.isFinite), ...scenario.transmissions.map((tx) => tx.issuedAt)])].sort((a, b) => a - b);
+  let failedAt: number | null = null;
+  for (const t of checkpoints) {
+    if (resolveCreateJob(view(t), { protocolRefusalsFinal: rules.protocolRefusalsFinal }).status === "failed") {
+      failedAt = t;
+      break;
+    }
+  }
+  const end = checkpoints.length > 0 ? (checkpoints[checkpoints.length - 1] as number) : 0;
+  const web = resolveCreateJob(view(end), { protocolRefusalsFinal: rules.protocolRefusalsFinal });
+  const recordedBy = operation === null ? null : (scenario.transmissions[operation.recordedBy] as ModelTransmission);
+  const unsafe = failedAt !== null && recordedBy !== null && recordedBy.issuedAt <= failedAt;
+  return { answers, operation, web, failedAt, unsafe };
+}
+
+/** Rule sets the ordering fixtures and randomized tests evaluate: r2, the review's proposal, r3, and r3 minus each rule. */
+export const RULE_SETS: Readonly<Record<string, OrderingRules>> = {
+  r2: RULES_R2,
+  reviewProposal: RULES_REVIEW_PROPOSAL,
+  r3: RULES_R3,
+  "r3-without-wall-clock-deadline": { ...RULES_R3, executionDeadline: false },
+  "r3-without-fence": { ...RULES_R3, fence: false },
+  "r3-fence-durable-only-after-unlock": { ...RULES_R3, fenceDurableBeforeUnlock: false },
+  "r3-without-durable-nonces": { ...RULES_R3, nonceDurable: false },
+  "r3-nonces-discarded-by-clock": { ...RULES_R3, nonceRetainedUntilFenced: false },
+  "r3-protocol-refusals-final": { ...RULES_R3, protocolRefusalsFinal: true },
+  "r3-without-journal": { ...RULES_R3, journalBeforeSend: false },
+};
+
+// ---------------------------------------------------------------------------
+// §13.5 Reconciliation plan
+// ---------------------------------------------------------------------------
+
+export type ReconciliationStep = "send-create" | "revoke" | "confirm-status" | "operator-attention" | "none";
+
+/**
+ * The next step for one create job given its resolution and the profile's
+ * desired state (R4–R6). An unresolved create is always driven forward with
+ * the same logical command, even when the desired state is absent: Web must
+ * learn the operation id before it can revoke it.
+ */
+export function planReconciliation(resolution: CreateResolution, desired: "present" | "absent"): ReconciliationStep {
+  switch (resolution.status) {
+    case "unresolved":
+      return "send-create";
+    case "attention":
+      return "operator-attention";
+    case "failed":
+      return "none";
+    case "resolved":
+      if (resolution.state === "completed") return desired === "absent" ? "revoke" : "none";
+      if (resolution.state === "failed") return desired === "absent" ? "confirm-status" : "none";
+      if (resolution.state === "revoked") return desired === "absent" ? "none" : "operator-attention";
+      return "send-create";
+  }
 }

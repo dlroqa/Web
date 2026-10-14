@@ -1,10 +1,10 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r2",
+  "fixtureSet": "la-web-provisioning-1/r3",
   "specification": {
     "path": "docs/PROVISIONING_PROTOCOL.md",
-    "bytes": 75524,
-    "sha256": "9c92514d1a5f53c450887c48ccdeb594cd253485253016e14850a3e0b8e1efef"
+    "bytes": 100051,
+    "sha256": "1ffc4fe973b0dd5b3d4d39c3f31c4bc84c909031029ce03b48120e399b3d9adc"
   },
   "schemas": [
     "LA-WEB-PROVISIONING/1#command/profile.create",
@@ -186,7 +186,12 @@
       "elapsed-time-alone",
       "operation-revoked-replay",
       "idempotency-conflict",
-      "operation-mismatch"
+      "operation-mismatch",
+      "single-protocol-refusal",
+      "protocol-refusal-ruled-out-by-merits",
+      "single-expired-refusal",
+      "journaled-never-sent",
+      "admission-refusals-only"
     ],
     "protocol/la-web-provisioning-1/errors.json": [],
     "protocol/la-web-provisioning-1/execution-deadline.json": [
@@ -195,6 +200,9 @@
       "lock-at-deadline",
       "admitted-at-last-second-lock-after",
       "lock-after-long-wait",
+      "fence-equals-deadline",
+      "fence-one-below-deadline",
+      "clock-rolled-back-fence-refuses",
       "lock-wait-race",
       "begun-before-deadline-completes-late",
       "crash-after-record-then-resend",
@@ -202,6 +210,18 @@
       "merits-before-horizon"
     ],
     "protocol/la-web-provisioning-1/keys.json": [],
+    "protocol/la-web-provisioning-1/ordering-model.json": [
+      "backward-step-while-waiting",
+      "fence-visible-only-after-unlock",
+      "duplicate-of-refused-command-after-restart",
+      "duplicate-after-clock-purge-and-rollback",
+      "pre-nonce-refusal-then-duplicate",
+      "unjournaled-transmission",
+      "crash-after-record-restart-resend",
+      "maximum-skew-no-step",
+      "completion-after-expiry",
+      "overlapping-windows-out-of-order"
+    ],
     "protocol/la-web-provisioning-1/redelivery.json": [
       "redelivery-create-1",
       "redelivery-create-2",
@@ -262,44 +282,49 @@
     {
       "path": "protocol/la-web-provisioning-1/commands-invalid.json",
       "bytes": 387665,
-      "sha256": "c3c348e2debeed724027ba942ce701cbfcdedb59fa12d6755caf283372bf4e3e"
+      "sha256": "259e5e9ead79db5952123b2caa45e0cb5cd77ffbcc54e80618f28e2ff94d05d7"
     },
     {
       "path": "protocol/la-web-provisioning-1/commands-valid.json",
       "bytes": 87207,
-      "sha256": "fc284cbb04710cef8ec678ba91980e3b582156758b9df20eedabee2dc9ef2bec"
+      "sha256": "4a0718fc47f1e1d59960dae80a3903d195f5b8b573afdb5ae71a91360454afc8"
     },
     {
       "path": "protocol/la-web-provisioning-1/create-resolution.json",
-      "bytes": 13932,
-      "sha256": "3971d0b28abef3ef707bcd64e1df4e4f3e3f23a680bf748865a9992b102e828e"
+      "bytes": 19152,
+      "sha256": "4868fa30d3cff962a842cdca198534c249cc7b1537a8009d0e85dab0d820275e"
     },
     {
       "path": "protocol/la-web-provisioning-1/errors.json",
-      "bytes": 13706,
-      "sha256": "cdbd0cf099ce9179489a6a63b9767fe1130b135f25d6e68fb6d1f0e535032c11"
+      "bytes": 15904,
+      "sha256": "e2e26e5f08c38b7bc947ce31be54c651f3af00d9a56e42146b57c1c7fb02e49d"
     },
     {
       "path": "protocol/la-web-provisioning-1/execution-deadline.json",
-      "bytes": 9110,
-      "sha256": "2f505a13c12bba397679ee21ebee8ef356df3ec3fa7d93ae4b27ee2d08cf2c84"
+      "bytes": 10300,
+      "sha256": "53c7569c2d21ca2b3a3a5e2812a1e3705bf6d4462d315b2a66b255fed4f7bb85"
     },
     {
       "path": "protocol/la-web-provisioning-1/keys.json",
       "bytes": 4413,
-      "sha256": "d4e99b766133cae4cf2a738568f3ef96265d5df6cd3bd258bd09174868756cae"
+      "sha256": "4efb5bf43a3052f916c5acf6a91c0a90651111370211a4b3aba29520fb0ea994"
+    },
+    {
+      "path": "protocol/la-web-provisioning-1/ordering-model.json",
+      "bytes": 52361,
+      "sha256": "13dbc01a78329efeea6359215d36775a4556229a1dba23c927510dd45da40129"
     },
     {
       "path": "protocol/la-web-provisioning-1/redelivery.json",
       "bytes": 32392,
-      "sha256": "1888306a043e0d77bdbfb1e5a07e7037ad30fce6f3e6bb9c4bd93e61c9fc19a5"
+      "sha256": "d903270d875a39db8cc92610e3881a81207ad428f0462ff6f0e6d87c9150eea6"
     },
     {
       "path": "protocol/la-web-provisioning-1/responses.json",
       "bytes": 46117,
-      "sha256": "31438dff39d37241713664e08bc36355c72f3349010db265d84eb41682ede694"
+      "sha256": "3face0178433bb44305a4559397cce2f959dc6d4664c6c1783a7f561954c5d92"
     }
   ],
-  "fixtureDigest": "49c28a8b49d8c4b0d01ff7cd89df48fe2536ca68faee9dbbddd9df842ac51f55",
+  "fixtureDigest": "0190187a77f4950e06a132b8309168d30546989f9971ded379a6e232f8a9a857",
   "compatibilityDigest": "SHA-256 of this file's exact bytes (MANIFEST.json); recorded in ACCEPTANCE.md, not here."
 }

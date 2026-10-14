@@ -10,6 +10,7 @@ import commandsValidText from "../../protocol/la-web-provisioning-1/commands-val
 import resolutionText from "../../protocol/la-web-provisioning-1/create-resolution.json?raw";
 import errorsText from "../../protocol/la-web-provisioning-1/errors.json?raw";
 import executionDeadlineText from "../../protocol/la-web-provisioning-1/execution-deadline.json?raw";
+import orderingText from "../../protocol/la-web-provisioning-1/ordering-model.json?raw";
 import keysText from "../../protocol/la-web-provisioning-1/keys.json?raw";
 import redeliveryText from "../../protocol/la-web-provisioning-1/redelivery.json?raw";
 import responsesText from "../../protocol/la-web-provisioning-1/responses.json?raw";
@@ -31,7 +32,11 @@ import {
   type Operation,
   parseStrictJson,
   payloadHash,
+  type OrderingScenario,
+  planReconciliation,
   PROTOCOL,
+  RULE_SETS,
+  simulateOrdering,
   type RaceAttempt,
   type RaceScenario,
   resolveCreateJob,
@@ -222,7 +227,11 @@ describe("responses", () => {
 
 describe("create resolution", () => {
   it.each(resolution)("$id", (c) => {
-    expect(resolveCreateJob(c.transmissions)).toEqual(c.expect);
+    const resolved = resolveCreateJob(c.transmissions);
+    expect(resolved).toEqual(c.expect);
+    expect({ present: planReconciliation(resolved, "present"), absent: planReconciliation(resolved, "absent") }).toEqual(
+      (c as unknown as { plan: unknown }).plan,
+    );
   });
 
   it("never turns exhausted retries into failed", () => {
@@ -237,14 +246,14 @@ describe("create resolution", () => {
 
 describe("execution deadline (§10 step 14)", () => {
   const fixture = JSON.parse(executionDeadlineText) as {
-    deadlineCases: Array<{ id: string; lockAcquiredAt: number; executionDeadline: number; expect: string }>;
+    deadlineCases: Array<{ id: string; lockAcquiredAt: number; executionDeadline: number; fence: number; expect: string }>;
     races: Array<{ id: string; scenario: Omit<RaceScenario, "executionDeadlineCheck">; withExecutionDeadline: unknown; withoutExecutionDeadline: unknown }>;
   };
   const command = sent("valid-create-basic");
 
   it.each(fixture.deadlineCases)("$id → $expect", (c) => {
     expect(c.executionDeadline).toBe(command.expiresAt + 30);
-    expect(checkExecutionDeadline(command, c.lockAcquiredAt)).toBe(c.expect);
+    expect(checkExecutionDeadline(command, c.lockAcquiredAt, c.fence)).toBe(c.expect);
   });
 
   it.each(fixture.races)("$id", (r) => {
@@ -299,6 +308,196 @@ describe("execution deadline (§10 step 14)", () => {
     }
     expect(unsafeWithout).toBeGreaterThan(0);
     expect(ACCEPTANCE_HORIZON_SECONDS).toBe(60);
+  });
+});
+
+describe("ordering model (§13.2, RC5, RC6)", () => {
+  const fixture = JSON.parse(orderingText) as {
+    ruleSets: unknown;
+    scenarios: Array<{ id: string; scenario: OrderingScenario; results: Record<string, { unsafe: boolean }> }>;
+  };
+
+  it("uses the reference rule sets", () => {
+    expect(fixture.ruleSets).toEqual(JSON.parse(JSON.stringify(RULE_SETS)));
+  });
+
+  it.each(fixture.scenarios)("$id reproduces under every rule set", (s) => {
+    for (const [name, rules] of Object.entries(RULE_SETS)) {
+      expect(JSON.parse(JSON.stringify(simulateOrdering(s.scenario, rules))), name).toEqual(s.results[name]);
+    }
+    expect(s.results.r3?.unsafe, "r3 must be safe").toBe(false);
+  });
+
+  it("each counterexample is defeated by exactly the r3 rule it targets", () => {
+    const unsafe = (id: string) =>
+      Object.entries(fixture.scenarios.find((s) => s.id === id)?.results ?? {}).filter(([, r]) => r.unsafe).map(([name]) => name).sort();
+    expect(unsafe("backward-step-while-waiting")).toEqual(["r2", "r3-without-fence"]);
+    expect(unsafe("fence-visible-only-after-unlock")).toEqual(["r2", "r3-fence-durable-only-after-unlock", "r3-without-fence", "reviewProposal"]);
+    expect(unsafe("duplicate-of-refused-command-after-restart")).toEqual(["r2", "r3-without-durable-nonces", "reviewProposal"]);
+    expect(unsafe("duplicate-after-clock-purge-and-rollback")).toEqual(["r2", "r3-nonces-discarded-by-clock", "reviewProposal"]);
+    expect(unsafe("pre-nonce-refusal-then-duplicate")).toEqual(["r2", "r3-protocol-refusals-final", "reviewProposal"]);
+    expect(unsafe("unjournaled-transmission")).toEqual(["r2", "r3-without-journal"]);
+  });
+
+  /**
+   * Seeded randomized schedules. Assumptions (all within what r3 permits or
+   * must survive): 1–4 transmissions of one job, lifetime 60 s, gaps 0–250 s
+   * (overlapping windows and out-of-order arrival included); 0–2 copies per
+   * transmission (loss and duplication), arrival delays up to 400 s, lock
+   * waits up to 300 s, lock holds up to 200 s (completion after expiry);
+   * harness clock offset ±30 s plus up to two steps of ±90 s (rollback while
+   * waiting); restarts (queued calls die, non-durable state lost);
+   * housekeeping; a key trusted only later; quota windows; crashes after
+   * record; lost answers; unjournaled sends (only matter without RC6).
+   * Not modelled: forged responses (§12.1), harness compromise, several
+   * ledgers behind one harness id (excluded by assumption A1).
+   */
+  it("finds no unsafe schedule under r3, and counterexamples without each rule", () => {
+    const SEED = 0x7a3c_2026;
+    const RUNS = 30_000;
+    let state = SEED;
+    const rand = () => {
+      state = (state + 0x6d2b79f5) | 0;
+      let t = Math.imul(state ^ (state >>> 15), 1 | state);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const int = (max: number) => Math.floor(rand() * (max + 1));
+    const T0 = 1_791_000_000;
+    const unsafe: Record<string, number> = Object.fromEntries(Object.keys(RULE_SETS).map((k) => [k, 0]));
+    let firstR3Failure: OrderingScenario | null = null;
+    for (let run = 0; run < RUNS; run += 1) {
+      let issued = T0;
+      const transmissions = Array.from({ length: 1 + int(3) }, () => {
+        // A third of the gaps put the next transmission at the previous one's horizon (R3's case).
+        const kind = int(2);
+        issued += kind === 0 ? int(30) : kind === 1 ? 120 + int(10) : int(250);
+        return { issuedAt: issued, expiresAt: issued + 60, journaled: int(3) !== 0 };
+      });
+      const drafts = transmissions.flatMap((tx, transmission) =>
+        Array.from({ length: int(4) === 0 ? 0 : int(2) === 0 ? 2 : 1 }, (_, copy) => {
+          const arrivesAt = tx.issuedAt + (int(3) === 0 ? int(400) : int(20));
+          return {
+            transmission, arrivesAt, desired: arrivesAt + (int(2) === 0 ? int(300) : int(5)), holdFor: 1 + (int(4) === 0 ? int(200) : int(3)),
+            answerToWeb: copy === 0 && int(2) !== 0, crashAfterRecord: int(9) === 0,
+          };
+        }),
+      );
+      let lockFree = -Infinity;
+      const deliveries = drafts
+        .map((d, i) => ({ d, i }))
+        .sort((a, b) => a.d.desired - b.d.desired || a.i - b.i)
+        .map(({ d, i }) => {
+          const lockAt = Math.max(d.desired, lockFree);
+          lockFree = lockAt + d.holdFor;
+          return { i, delivery: { transmission: d.transmission, arrivesAt: d.arrivesAt, lockAt, holdFor: d.holdFor, answerToWeb: d.answerToWeb, crashAfterRecord: d.crashAfterRecord } };
+        })
+        .sort((a, b) => a.i - b.i)
+        .map(({ delivery }) => delivery);
+      const harnessClock: Array<{ from: number; offset: number }> = [{ from: -Infinity, offset: int(60) - 30 }];
+      for (let step = int(2); step > 0; step -= 1) harnessClock.push({ from: T0 + int(600), offset: int(180) - 90 });
+      harnessClock.sort((a, b) => a.from - b.from);
+      const a = T0 + int(700);
+      const scenario: OrderingScenario = {
+        transmissions,
+        deliveries,
+        harnessClock,
+        quota: [[[0, Number.MAX_SAFE_INTEGER]], [[a, a + int(400)]], [[a, Number.MAX_SAFE_INTEGER]]][int(2)] as Array<[number, number]>,
+        ...(int(4) === 0 ? { keyTrustedFrom: T0 + int(300) } : {}),
+        restarts: int(2) === 0 ? [T0 + int(900)] : [],
+        housekeeping: Array.from({ length: int(2) }, () => T0 + int(900)),
+      };
+      for (const [name, rules] of Object.entries(RULE_SETS)) {
+        if (simulateOrdering(scenario, rules).unsafe) {
+          unsafe[name] = (unsafe[name] as number) + 1;
+          if (name === "r3" && firstR3Failure === null) firstR3Failure = scenario;
+        }
+      }
+    }
+    const summary = `ordering model: seed 0x${SEED.toString(16)}, ${RUNS} schedules, unsafe per rule set ${JSON.stringify(unsafe)}`;
+    console.info(summary);
+    if (firstR3Failure) throw new Error(`unsafe r3 schedule: ${JSON.stringify(firstR3Failure)}`);
+    expect(unsafe.r3).toBe(0);
+    // The wall-clock check bounds normal execution; safety rests on the fence (§13.2 proof).
+    expect(unsafe["r3-without-wall-clock-deadline"]).toBe(0);
+    for (const name of ["r2", "reviewProposal", "r3-protocol-refusals-final", "r3-without-journal"]) {
+      expect(unsafe[name], `${name} (${summary})`).toBeGreaterThan(0);
+    }
+  });
+
+  /**
+   * Focused hazard families, because the fence and nonce counterexamples need
+   * narrow coincidences that broad schedules rarely produce.
+   * - lock-wait: u admitted, then waits; t issued at u's horizon (0–4 s
+   *   after) and refused on the merits; the harness is 20–30 s behind and
+   *   steps back 1–10 s around t; u takes the lock at, or up to 3 s after,
+   *   t's release (another process, fence persistence race); quota frees after t.
+   * - duplicate: one transmission refused on the merits, then a copy of the
+   *   same bytes arrives 5–80 s later after a restart and/or a forward clock
+   *   jump with housekeeping followed by a return; quota frees in between.
+   */
+  it("finds no unsafe hazard under r3, and counterexamples for the fence and nonce rules", () => {
+    const SEED = 0x5afe_0003;
+    const RUNS = 25_000;
+    let state = SEED;
+    const rand = () => {
+      state = (state + 0x6d2b79f5) | 0;
+      let t = Math.imul(state ^ (state >>> 15), 1 | state);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const int = (max: number) => Math.floor(rand() * (max + 1));
+    const T0 = 1_791_000_000;
+    const FOREVER = Number.MAX_SAFE_INTEGER;
+    const counts = { lockWait: {} as Record<string, number>, duplicate: {} as Record<string, number> };
+    for (const name of Object.keys(RULE_SETS)) {
+      counts.lockWait[name] = 0;
+      counts.duplicate[name] = 0;
+    }
+    for (let run = 0; run < RUNS; run += 1) {
+      const offset = -20 - int(10);
+      const tIssued = T0 + 120 + int(4);
+      const tArrive = tIssued + int(3);
+      const tHold = 1 + int(1);
+      const uLock = tArrive + tHold + int(3);
+      const lockWait: OrderingScenario = {
+        transmissions: [{ issuedAt: T0, expiresAt: T0 + 60 }, { issuedAt: tIssued, expiresAt: tIssued + 60 }],
+        deliveries: [
+          { transmission: 0, arrivesAt: T0 + int(10), lockAt: uLock, answerToWeb: false },
+          { transmission: 1, arrivesAt: tArrive, lockAt: tArrive, holdFor: tHold },
+        ],
+        harnessClock: [{ from: 0, offset }, { from: tArrive + int(3), offset: offset - 1 - int(9) }],
+        quota: [[tArrive + 1, FOREVER]],
+      };
+      const jump = int(1) === 0;
+      const restart = !jump || int(1) === 0;
+      const dupAt = T0 + 5 + int(75);
+      const duplicate: OrderingScenario = {
+        transmissions: [{ issuedAt: T0, expiresAt: T0 + 60 }],
+        deliveries: [
+          { transmission: 0, arrivesAt: T0 + 1 },
+          { transmission: 0, arrivesAt: dupAt, answerToWeb: false },
+        ],
+        harnessClock: jump ? [{ from: 0, offset: 0 }, { from: T0 + 2, offset: 90 + int(60) }, { from: dupAt - 1, offset: 0 }] : [{ from: 0, offset: 0 }],
+        housekeeping: jump ? [T0 + 3] : [],
+        restarts: restart ? [T0 + 2 + int(Math.max(0, dupAt - T0 - 3))] : [],
+        quota: [[T0 + 3, FOREVER]],
+      };
+      for (const [name, rules] of Object.entries(RULE_SETS)) {
+        if (simulateOrdering(lockWait, rules).unsafe) counts.lockWait[name] = (counts.lockWait[name] as number) + 1;
+        if (simulateOrdering(duplicate, rules).unsafe) counts.duplicate[name] = (counts.duplicate[name] as number) + 1;
+      }
+    }
+    const summary = `hazards: seed 0x${SEED.toString(16)}, ${RUNS} per family, unsafe ${JSON.stringify(counts)}`;
+    console.info(summary);
+    expect(counts.lockWait.r3, summary).toBe(0);
+    expect(counts.duplicate.r3, summary).toBe(0);
+    for (const name of ["r2", "reviewProposal", "r3-without-fence", "r3-fence-durable-only-after-unlock"]) {
+      expect(counts.lockWait[name], `${name}: ${summary}`).toBeGreaterThan(0);
+    }
+    for (const name of ["r2", "reviewProposal", "r3-without-durable-nonces", "r3-nonces-discarded-by-clock"]) {
+      expect(counts.duplicate[name], `${name}: ${summary}`).toBeGreaterThan(0);
+    }
   });
 });
 

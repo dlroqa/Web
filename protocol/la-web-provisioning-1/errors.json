@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r2",
+  "fixtureSet": "la-web-provisioning-1/r3",
   "kind": "errors",
   "description": "Normative error registry (§11). `lightagent` lists the existing Lightagent codes each maps from; `gateway` marks codes the signed-command gateway introduces.",
   "errors": [
@@ -15,7 +15,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "UNSUPPORTED_MEDIA_TYPE",
@@ -28,7 +29,8 @@
       ],
       "lightagent": [
         "unsupported_media_type"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "PAYLOAD_TOO_LARGE",
@@ -41,7 +43,8 @@
       ],
       "lightagent": [
         "payload_too_large"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "MALFORMED_JSON",
@@ -54,7 +57,8 @@
       ],
       "lightagent": [
         "invalid_request"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "DUPLICATE_KEY",
@@ -67,7 +71,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "INVALID_JSON_VALUE",
@@ -80,7 +85,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "INVALID_ENVELOPE",
@@ -93,7 +99,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "UNSUPPORTED_PROTOCOL",
@@ -106,7 +113,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "UNKNOWN_FIELD",
@@ -119,7 +127,8 @@
       ],
       "lightagent": [
         "invalid_request"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "MISSING_FIELD",
@@ -132,7 +141,8 @@
       ],
       "lightagent": [
         "invalid_request"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "WRONG_PURPOSE",
@@ -145,7 +155,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "UNSUPPORTED_OPERATION",
@@ -158,7 +169,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "INVALID_FIELD",
@@ -171,7 +183,8 @@
       ],
       "lightagent": [
         "invalid_request"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "INVALID_LIFETIME",
@@ -184,7 +197,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "NON_CANONICAL",
@@ -197,7 +211,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "UNKNOWN_KEY",
@@ -210,7 +225,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "KEY_REVOKED",
@@ -223,7 +239,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "BAD_SIGNATURE",
@@ -236,7 +253,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "WRONG_AUDIENCE",
@@ -249,7 +267,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "NOT_YET_VALID",
@@ -262,7 +281,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "EXPIRED",
@@ -276,6 +296,7 @@
       "lightagent": [
         "gateway"
       ],
+      "createResolution": "transmission-only",
       "note": "From §10 step 12 (admission), or for profile.create from step 14 (execution deadline re-checked under the ledger lock). Either way this transmission had no effect."
     },
     {
@@ -289,7 +310,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "indeterminate"
     },
     {
       "code": "NONCE_STORE_UNAVAILABLE",
@@ -302,7 +324,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "transmission-only"
     },
     {
       "code": "INVALID_PROFILE_ID",
@@ -315,7 +338,8 @@
       ],
       "lightagent": [
         "invalid_profile_id"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "RESERVED_PROFILE_ID",
@@ -326,7 +350,8 @@
       ],
       "lightagent": [
         "reserved_profile_id"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "INVALID_ISSUER",
@@ -337,7 +362,8 @@
       ],
       "lightagent": [
         "invalid_issuer"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "INVALID_SUBJECT",
@@ -348,7 +374,8 @@
       ],
       "lightagent": [
         "invalid_subject"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "INVALID_DISPLAY_NAME",
@@ -359,7 +386,8 @@
       ],
       "lightagent": [
         "invalid_display_name"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "INVALID_TEMPLATE",
@@ -371,6 +399,7 @@
       "lightagent": [
         "invalid_template"
       ],
+      "createResolution": "final",
       "note": "As a refusal: the payload's template is not \"assistant\". Also an operation failure code: a recorded operation whose template the harness no longer knows ends failed with it."
     },
     {
@@ -383,7 +412,8 @@
       "lightagent": [
         "invalid_idempotency_key",
         "missing_idempotency_key"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "INVALID_OPERATION_ID",
@@ -395,7 +425,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "UNAUTHENTICATED",
@@ -408,7 +439,8 @@
       ],
       "lightagent": [
         "unauthenticated"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "NOT_A_PROVISIONER",
@@ -421,7 +453,8 @@
       ],
       "lightagent": [
         "not_a_provisioner"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "CREDENTIAL_NOT_PROVISIONING_ONLY",
@@ -434,7 +467,8 @@
       ],
       "lightagent": [
         "credential_not_provisioning_only"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "PROVISIONER_INACTIVE",
@@ -447,7 +481,8 @@
       ],
       "lightagent": [
         "provisioner_inactive"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "PROVISIONER_REVOKED",
@@ -460,7 +495,8 @@
       ],
       "lightagent": [
         "provisioner_revoked"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "PROFILE_OUTSIDE_CREDENTIAL",
@@ -471,7 +507,8 @@
       ],
       "lightagent": [
         "profile_outside_credential"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "ISSUER_NOT_ALLOWED",
@@ -482,7 +519,8 @@
       ],
       "lightagent": [
         "issuer_not_allowed"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "TEMPLATE_NOT_ALLOWED",
@@ -493,7 +531,8 @@
       ],
       "lightagent": [
         "template_not_allowed"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "QUOTA_EXCEEDED",
@@ -504,7 +543,8 @@
       ],
       "lightagent": [
         "quota_exceeded"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "LEDGER_FULL",
@@ -515,7 +555,8 @@
       ],
       "lightagent": [
         "ledger_full"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "PROFILE_UNAVAILABLE",
@@ -526,7 +567,8 @@
       ],
       "lightagent": [
         "profile_unavailable"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "PRINCIPAL_INACTIVE",
@@ -537,7 +579,8 @@
       ],
       "lightagent": [
         "principal_inactive"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "EXTERNAL_IDENTITY_CONFLICT",
@@ -548,7 +591,8 @@
       ],
       "lightagent": [
         "external_identity_conflict"
-      ]
+      ],
+      "createResolution": "final"
     },
     {
       "code": "IDEMPOTENCY_CONFLICT",
@@ -559,7 +603,8 @@
       ],
       "lightagent": [
         "idempotency_conflict"
-      ]
+      ],
+      "createResolution": "conflict"
     },
     {
       "code": "UNKNOWN_OPERATION",
@@ -571,7 +616,8 @@
       ],
       "lightagent": [
         "unknown_operation"
-      ]
+      ],
+      "createResolution": "not-applicable"
     },
     {
       "code": "OPERATION_IN_PROGRESS",
@@ -582,7 +628,8 @@
       ],
       "lightagent": [
         "operation_in_progress"
-      ]
+      ],
+      "createResolution": "not-applicable"
     },
     {
       "code": "NOT_REVOCABLE",
@@ -593,7 +640,8 @@
       ],
       "lightagent": [
         "not_revocable"
-      ]
+      ],
+      "createResolution": "not-applicable"
     },
     {
       "code": "OWNERSHIP_CHANGED",
@@ -604,7 +652,8 @@
       ],
       "lightagent": [
         "ownership_changed"
-      ]
+      ],
+      "createResolution": "not-applicable"
     },
     {
       "code": "STORAGE_UNAVAILABLE",
@@ -617,7 +666,8 @@
       ],
       "lightagent": [
         "storage_unavailable"
-      ]
+      ],
+      "createResolution": "indeterminate"
     },
     {
       "code": "STORAGE_CORRUPT",
@@ -630,7 +680,8 @@
       ],
       "lightagent": [
         "storage_corrupt"
-      ]
+      ],
+      "createResolution": "indeterminate"
     },
     {
       "code": "IDENTITY_UNAVAILABLE",
@@ -643,7 +694,8 @@
       ],
       "lightagent": [
         "identity_unavailable"
-      ]
+      ],
+      "createResolution": "indeterminate"
     },
     {
       "code": "INTERNAL_ERROR",
@@ -656,7 +708,8 @@
       ],
       "lightagent": [
         "gateway"
-      ]
+      ],
+      "createResolution": "indeterminate"
     }
   ],
   "operationFailureCodes": [

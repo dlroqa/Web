@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r2",
+  "fixtureSet": "la-web-provisioning-1/r3",
   "kind": "redelivery",
   "description": "Redelivery series. Every transmission of one logical command repeats protocol, purpose, operation, jobId, requestId, audience and payload (so idempotencyKey and payloadHash), and renews commandId, nonce, issuedAt, expiresAt and signature. keyId may change across a key rotation.",
   "logicalCommands": [

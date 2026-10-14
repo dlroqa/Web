@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r2",
+  "fixtureSet": "la-web-provisioning-1/r3",
   "kind": "create-resolution",
   "description": "What Web may conclude about one profile.create job from all its transmissions (§13.2). Times are Web-clock Unix seconds.",
   "acceptanceHorizonSeconds": 60,
@@ -11,6 +11,10 @@
       "transmissions": [],
       "expect": {
         "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
       }
     },
     {
@@ -31,6 +35,10 @@
         "status": "resolved",
         "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
         "state": "completed"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "revoke"
       }
     },
     {
@@ -58,6 +66,10 @@
         "status": "resolved",
         "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
         "state": "completed"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "revoke"
       }
     },
     {
@@ -137,6 +149,10 @@
       ],
       "expect": {
         "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
       }
     },
     {
@@ -153,6 +169,10 @@
       ],
       "expect": {
         "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
       }
     },
     {
@@ -171,6 +191,10 @@
       "expect": {
         "status": "failed",
         "code": "PROFILE_UNAVAILABLE"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "none"
       }
     },
     {
@@ -189,6 +213,10 @@
       "expect": {
         "status": "failed",
         "code": "UNAUTHENTICATED"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "none"
       }
     },
     {
@@ -213,6 +241,10 @@
       ],
       "expect": {
         "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
       }
     },
     {
@@ -238,6 +270,10 @@
       "expect": {
         "status": "failed",
         "code": "QUOTA_EXCEEDED"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "none"
       }
     },
     {
@@ -262,6 +298,10 @@
       ],
       "expect": {
         "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
       }
     },
     {
@@ -287,6 +327,10 @@
       "expect": {
         "status": "failed",
         "code": "QUOTA_EXCEEDED"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "none"
       }
     },
     {
@@ -322,6 +366,10 @@
         "status": "resolved",
         "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
         "state": "completed"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "revoke"
       }
     },
     {
@@ -346,6 +394,10 @@
       ],
       "expect": {
         "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
       }
     },
     {
@@ -370,6 +422,10 @@
       ],
       "expect": {
         "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
       }
     },
     {
@@ -394,6 +450,10 @@
       ],
       "expect": {
         "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
       }
     },
     {
@@ -419,6 +479,10 @@
       "expect": {
         "status": "failed",
         "code": "INVALID_DISPLAY_NAME"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "none"
       }
     },
     {
@@ -446,6 +510,10 @@
         "status": "resolved",
         "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
         "state": "failed"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "confirm-status"
       }
     },
     {
@@ -462,6 +530,10 @@
       ],
       "expect": {
         "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
       }
     },
     {
@@ -489,6 +561,10 @@
         "status": "resolved",
         "operationId": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
         "state": "revoked"
+      },
+      "plan": {
+        "present": "operator-attention",
+        "absent": "none"
       }
     },
     {
@@ -514,6 +590,10 @@
       "expect": {
         "status": "attention",
         "code": "IDEMPOTENCY_CONFLICT"
+      },
+      "plan": {
+        "present": "operator-attention",
+        "absent": "operator-attention"
       }
     },
     {
@@ -542,6 +622,140 @@
       "expect": {
         "status": "attention",
         "code": "OPERATION_MISMATCH"
+      },
+      "plan": {
+        "present": "operator-attention",
+        "absent": "operator-attention"
+      }
+    },
+    {
+      "id": "single-protocol-refusal",
+      "description": "r3: the only transmission is refused UNKNOWN_KEY before its nonce was recorded. Another copy may still take effect, so the job stays unresolved (r2 concluded failed).",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "refused",
+            "code": "UNKNOWN_KEY"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
+      }
+    },
+    {
+      "id": "protocol-refusal-ruled-out-by-merits",
+      "description": "A transmission refused only for this copy, then a merits refusal issued after its horizon: failed.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "refused",
+            "code": "NOT_YET_VALID"
+          }
+        },
+        {
+          "issuedAt": 1791000120,
+          "expiresAt": 1791000180,
+          "outcome": {
+            "kind": "refused",
+            "code": "QUOTA_EXCEEDED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "failed",
+        "code": "QUOTA_EXCEEDED"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "none"
+      }
+    },
+    {
+      "id": "single-expired-refusal",
+      "description": "r3: EXPIRED (step 12 or 14) is transmission-only. Alone it never fails a job.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "refused",
+            "code": "EXPIRED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
+      }
+    },
+    {
+      "id": "journaled-never-sent",
+      "description": "RC6: a journaled transmission whose send status is unknown (the Worker died after commit) counts as uncertain.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "uncertain"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "refused",
+            "code": "QUOTA_EXCEEDED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "unresolved"
+      },
+      "plan": {
+        "present": "send-create",
+        "absent": "send-create"
+      }
+    },
+    {
+      "id": "admission-refusals-only",
+      "description": "Every transmission refused at local admission (after the nonce was durably recorded): nothing exists.",
+      "transmissions": [
+        {
+          "issuedAt": 1791000000,
+          "expiresAt": 1791000060,
+          "outcome": {
+            "kind": "refused",
+            "code": "UNAUTHENTICATED"
+          }
+        },
+        {
+          "issuedAt": 1791000030,
+          "expiresAt": 1791000090,
+          "outcome": {
+            "kind": "refused",
+            "code": "PROVISIONER_REVOKED"
+          }
+        }
+      ],
+      "expect": {
+        "status": "failed",
+        "code": "PROVISIONER_REVOKED"
+      },
+      "plan": {
+        "present": "none",
+        "absent": "none"
       }
     }
   ]

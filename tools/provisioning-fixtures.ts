@@ -12,6 +12,11 @@
  */
 import {
   ACCEPTANCE_HORIZON_SECONDS,
+  advanceFence,
+  type OrderingScenario,
+  planReconciliation,
+  RULE_SETS,
+  simulateOrdering,
   assessOwnership,
   checkExecutionDeadline,
   executionDeadline,
@@ -54,7 +59,7 @@ import {
 
 export const FIXTURE_DIR = "protocol/la-web-provisioning-1";
 export const SPEC_PATH = "docs/PROVISIONING_PROTOCOL.md";
-export const FIXTURE_SET = "la-web-provisioning-1/r2";
+export const FIXTURE_SET = "la-web-provisioning-1/r3";
 
 export const SCHEMA_IDS = [
   "LA-WEB-PROVISIONING/1#command/profile.create",
@@ -836,8 +841,16 @@ function buildResolution() {
     { id: "operation-revoked-replay", description: "Redelivery after revocation returns the revoked operation (S1).", transmissions: [tx(T0, uncertain), tx(T0 + 30, op("revoked"))] },
     { id: "idempotency-conflict", description: "IDEMPOTENCY_CONFLICT is a Web defect, never a failure.", transmissions: [tx(T0, uncertain), tx(T0 + 30, refused("IDEMPOTENCY_CONFLICT"))] },
     { id: "operation-mismatch", description: "Two different operation ids for one key.", transmissions: [tx(T0, op()), tx(T0 + 30, op("completed", "ffffffffffffffffffffffffffffffff"))] },
+    { id: "single-protocol-refusal", description: "r3: the only transmission is refused UNKNOWN_KEY before its nonce was recorded. Another copy may still take effect, so the job stays unresolved (r2 concluded failed).", transmissions: [tx(T0, refused("UNKNOWN_KEY"))] },
+    { id: "protocol-refusal-ruled-out-by-merits", description: "A transmission refused only for this copy, then a merits refusal issued after its horizon: failed.", transmissions: [tx(T0, refused("NOT_YET_VALID")), tx(T0 + H, refused("QUOTA_EXCEEDED"))] },
+    { id: "single-expired-refusal", description: "r3: EXPIRED (step 12 or 14) is transmission-only. Alone it never fails a job.", transmissions: [tx(T0, refused("EXPIRED"))] },
+    { id: "journaled-never-sent", description: "RC6: a journaled transmission whose send status is unknown (the Worker died after commit) counts as uncertain.", transmissions: [tx(T0, uncertain), tx(T0 + 30, refused("QUOTA_EXCEEDED"))] },
+    { id: "admission-refusals-only", description: "Every transmission refused at local admission (after the nonce was durably recorded): nothing exists.", transmissions: [tx(T0, refused("UNAUTHENTICATED")), tx(T0 + 30, refused("PROVISIONER_REVOKED"))] },
   ];
-  return cases.map((c) => ({ ...c, expect: resolveCreateJob(c.transmissions) }));
+  return cases.map((c) => {
+    const expect = resolveCreateJob(c.transmissions);
+    return { ...c, expect, plan: { present: planReconciliation(expect, "present"), absent: planReconciliation(expect, "absent") } };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -853,7 +866,13 @@ function buildExecutionDeadline(valid: CommandVector[]) {
     { id: "lock-at-deadline", description: "Admitted in time; lock acquired exactly at expiresAt + 30.", admittedAt: T0 + 10, lockAcquiredAt: deadline },
     { id: "admitted-at-last-second-lock-after", description: "Admission passes at expiresAt + 29; the lock is acquired two seconds later.", admittedAt: deadline - 1, lockAcquiredAt: deadline + 1 },
     { id: "lock-after-long-wait", description: "Admitted at once, then waited ten minutes for the lock.", admittedAt: T0 + 1, lockAcquiredAt: T0 + 600 },
-  ].map((c) => ({ ...c, command: "valid-create-basic", executionDeadline: deadline, expect: checkExecutionDeadline(command, c.lockAcquiredAt) }));
+    { id: "fence-equals-deadline", description: "RC5: clock still before the deadline, but fence = expiresAt + 30 (a later create was admitted).", admittedAt: T0 + 10, lockAcquiredAt: T0 + 20, fence: deadline },
+    { id: "fence-one-below-deadline", description: "RC5: fence = expiresAt + 29: the fence does not refuse.", admittedAt: T0 + 10, lockAcquiredAt: T0 + 20, fence: deadline - 1 },
+    { id: "clock-rolled-back-fence-refuses", description: "RC5: the clock reads T0 + 20 after a rollback, but the fence was raised to T0 + 150 by a create issued at T0 + 180.", admittedAt: T0 + 10, lockAcquiredAt: T0 + 20, fence: advanceFence(0, { issuedAt: T0 + 180 }) },
+  ].map((c) => {
+    const fence = "fence" in c ? (c.fence as number) : 0;
+    return { ...c, fence, command: "valid-create-basic", executionDeadline: deadline, expect: checkExecutionDeadline(command, c.lockAcquiredAt, fence) };
+  });
 
   const ALWAYS: Array<[number, number]> = [[0, Number.MAX_SAFE_INTEGER]];
   const races: Array<{ id: string; description: string; scenario: Omit<RaceScenario, "executionDeadlineCheck"> }> = [
@@ -922,6 +941,171 @@ function buildExecutionDeadline(valid: CommandVector[]) {
       ...r,
       withExecutionDeadline: simulateCreateRace({ ...r.scenario, executionDeadlineCheck: true }),
       withoutExecutionDeadline: simulateCreateRace({ ...r.scenario, executionDeadlineCheck: false }),
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ordering model (§13.2 RC5/RC6): deterministic scenarios under every rule set
+// ---------------------------------------------------------------------------
+
+function buildOrderingModel() {
+  const at = (s: number) => T0 + s;
+  const tx = (issued: number, extra: { journaled?: boolean } = {}) => ({ issuedAt: at(issued), expiresAt: at(issued + 60), ...extra });
+  const FOREVER = Number.MAX_SAFE_INTEGER;
+  const scenarios: Array<{ id: string; description: string; assumptions: string; scenario: OrderingScenario }> = [
+    {
+      id: "backward-step-while-waiting",
+      description:
+        "The review's RC5 case. The harness runs 30 s behind Web. u is admitted and waits for the lock. t, issued at u's horizon, is refused on the merits at harness time u.expiresAt + 30. The clock then steps back 4 s, and u acquires the lock at T0 + 123 while the harness clock reads u.expiresAt + 29.",
+      assumptions: "Clock offset -30 s (r2's skew limit), then a backward step. Quota frees at T0 + 121. u's answer is lost.",
+      scenario: {
+        transmissions: [tx(0), tx(120)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(5), lockAt: at(123), answerToWeb: false },
+          { transmission: 1, arrivesAt: at(120), lockAt: at(120) },
+        ],
+        harnessClock: [{ from: 0, offset: -30 }, { from: at(121), offset: -34 }],
+        quota: [[at(121), FOREVER]],
+      },
+    },
+    {
+      id: "fence-visible-only-after-unlock",
+      description:
+        "As above, but u acquires the lock at the instant t releases it. If the fence advance is written only after the lock is released (the review's wording allows that: 'durable before the answer'), u reads the old fence from the ledger and binds.",
+      assumptions: "Same clock as above, with the step at T0 + 121 to offset -32. A second gateway process takes the lock at t's release.",
+      scenario: {
+        transmissions: [tx(0), tx(120)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(5), lockAt: at(121), answerToWeb: false },
+          { transmission: 1, arrivesAt: at(120), lockAt: at(120) },
+        ],
+        harnessClock: [{ from: 0, offset: -30 }, { from: at(121), offset: -32 }],
+        quota: [[at(121), FOREVER]],
+      },
+    },
+    {
+      id: "duplicate-of-refused-command-after-restart",
+      description:
+        "Web's only transmission is refused QUOTA_EXCEEDED, so every transmission was refused before any effect and Web concludes failed. The harness restarts and loses non-durable nonces. A network-duplicated copy of the same bytes then arrives within its window, after quota frees, and binds.",
+      assumptions: "No clock error. One duplicate copy (a proxy or tunnel retry). Restart at T0 + 10.",
+      scenario: {
+        transmissions: [tx(0)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1) },
+          { transmission: 0, arrivesAt: at(20), answerToWeb: false },
+        ],
+        restarts: [at(10)],
+        quota: [[at(15), FOREVER]],
+      },
+    },
+    {
+      id: "duplicate-after-clock-purge-and-rollback",
+      description:
+        "As above, without a restart. The harness clock jumps 70 s ahead, and housekeeping discards the nonce by wall clock. The clock then returns, and the duplicate passes step 12 and the wall-clock part of step 14.",
+      assumptions: "Clock +70 s from T0 + 30 to T0 + 40, housekeeping at T0 + 35.",
+      scenario: {
+        transmissions: [tx(0)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1) },
+          { transmission: 0, arrivesAt: at(45), answerToWeb: false },
+        ],
+        harnessClock: [{ from: 0, offset: 0 }, { from: at(30), offset: 70 }, { from: at(40), offset: 0 }],
+        housekeeping: [at(35)],
+        quota: [[at(40), FOREVER]],
+      },
+    },
+    {
+      id: "pre-nonce-refusal-then-duplicate",
+      description:
+        "The only transmission is refused UNKNOWN_KEY (the operator has not yet added the key), before the nonce is recorded. The operator adds the key, and a duplicate copy arrives and binds. A Web that treats a protocol-class refusal as final concludes failed.",
+      assumptions: "Key trusted from T0 + 10. No clock error, no restart.",
+      scenario: {
+        transmissions: [tx(0)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1) },
+          { transmission: 0, arrivesAt: at(20), answerToWeb: false },
+        ],
+        keyTrustedFrom: at(10),
+        quota: [[0, FOREVER]],
+      },
+    },
+    {
+      id: "unjournaled-transmission",
+      description:
+        "The review's RC6 case. The Worker sends u and dies before journaling it. u waits for the lock. Web's journal holds only t, which is refused on the merits, so a Web without RC6 concludes failed. u then binds.",
+      assumptions: "No clock error. u was sent without a journal record (impossible under RC6).",
+      scenario: {
+        transmissions: [tx(0, { journaled: false }), tx(20)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1), lockAt: at(50), answerToWeb: false },
+          { transmission: 1, arrivesAt: at(21), lockAt: at(21) },
+        ],
+        quota: [[at(40), FOREVER]],
+      },
+    },
+    {
+      id: "crash-after-record-restart-resend",
+      description: "u records the operation, then fails with STORAGE_UNAVAILABLE, and the harness restarts. A resend under the same key resumes and completes it. Web resolves it, and never fails it.",
+      assumptions: "Quota exhausted after T0 + 2. Restart at T0 + 5.",
+      scenario: {
+        transmissions: [tx(0), tx(30)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(1), crashAfterRecord: true },
+          { transmission: 1, arrivesAt: at(31) },
+        ],
+        restarts: [at(5)],
+        quota: [[at(0), at(2)]],
+      },
+    },
+    {
+      id: "maximum-skew-no-step",
+      description: "The harness is 30 s behind (the r2 limit) and its clock never steps. u reaches the lock after its deadline and is refused by the wall clock and the fence. R3 is safe in every rule set.",
+      assumptions: "Clock offset -30 s throughout.",
+      scenario: {
+        transmissions: [tx(0), tx(120)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(5), lockAt: at(123), answerToWeb: false },
+          { transmission: 1, arrivesAt: at(120), lockAt: at(120) },
+        ],
+        harnessClock: [{ from: 0, offset: -30 }],
+        quota: [[at(121), FOREVER]],
+      },
+    },
+    {
+      id: "completion-after-expiry",
+      description: "u starts before its deadline and holds the lock for 300 s. A later transmission waits for it and returns the operation. Expiry never proves that a started create did not complete.",
+      assumptions: "No clock error. A slow commit.",
+      scenario: {
+        transmissions: [tx(0), tx(380)],
+        deliveries: [
+          { transmission: 0, arrivesAt: at(5), lockAt: at(80), holdFor: 300, answerToWeb: false },
+          { transmission: 1, arrivesAt: at(381), lockAt: at(381) },
+        ],
+        quota: [[0, FOREVER]],
+      },
+    },
+    {
+      id: "overlapping-windows-out-of-order",
+      description: "Two transmissions with overlapping windows arrive out of order. The later one is refused on the merits before the earlier one binds. Web stays unresolved, because the refusal is inside the earlier one's horizon.",
+      assumptions: "No clock error. Quota frees at T0 + 50.",
+      scenario: {
+        transmissions: [tx(0), tx(30)],
+        deliveries: [
+          { transmission: 1, arrivesAt: at(31), lockAt: at(31) },
+          { transmission: 0, arrivesAt: at(40), lockAt: at(55), answerToWeb: false },
+        ],
+        quota: [[at(50), FOREVER]],
+      },
+    },
+  ];
+  return {
+    description:
+      "Deterministic ordering scenarios for one harness and one profile.create job (§13.2). Each is evaluated under every rule set in `ruleSets`. `unsafe` means Web concluded failed (`failedAt`) while an operation exists that a transmission issued by then recorded. Times are Unix seconds; deliveries are copies of a transmission reaching the harness.",
+    ruleSets: RULE_SETS,
+    scenarios: scenarios.map((s) => ({
+      ...s,
+      results: Object.fromEntries(Object.entries(RULE_SETS).map(([name, rules]) => [name, simulateOrdering(s.scenario, rules)])),
     })),
   };
 }
@@ -1010,6 +1194,10 @@ export async function buildFixtureFiles(): Promise<Map<string, string>> {
     }),
   );
   files.set(
+    `${FIXTURE_DIR}/ordering-model.json`,
+    json({ ...header("ordering-model"), ...buildOrderingModel() }),
+  );
+  files.set(
     `${FIXTURE_DIR}/errors.json`,
     json({
       ...header("errors"),
@@ -1039,7 +1227,7 @@ export async function buildManifest(files: Map<string, string>, spec: Uint8Array
     fixtureIds: Object.fromEntries(
       [...files.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([path, content]) => {
         const parsed = JSON.parse(content) as Record<string, unknown>;
-        const lists = ["vectors", "cases", "deadlineCases", "races"].flatMap((key) => (Array.isArray(parsed[key]) ? (parsed[key] as Array<{ id: string }>) : []));
+        const lists = ["vectors", "cases", "deadlineCases", "races", "scenarios"].flatMap((key) => (Array.isArray(parsed[key]) ? (parsed[key] as Array<{ id: string }>) : []));
         return [path, lists.map((v) => v.id)];
       }),
     ),

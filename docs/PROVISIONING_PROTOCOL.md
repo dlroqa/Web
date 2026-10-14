@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Protocol identifier | `LA-WEB-PROVISIONING/1` |
-| Revision | `la-web-provisioning-1/r2` (changes from r1: §18) |
+| Revision | `la-web-provisioning-1/r3` (changes: §18) |
 | Status | **Candidate.** It is not frozen until Web and Lightagent both record acceptance of the same compatibility digest in `protocol/la-web-provisioning-1/ACCEPTANCE.md`. |
 | Owner | Web (`lightagent-control`). Lightagent mirrors a byte-identical copy. |
 | Fixtures | `protocol/la-web-provisioning-1/` (listed in `MANIFEST.json`) |
@@ -391,18 +391,36 @@ MUST NOT be sent. If one is sent anyway, Lightagent answers
 
 ### 9.2 Nonces
 
-- The harness records each accepted nonce **before** local admission and
-  before any side effect, atomically (insert-if-absent), and keeps it at least
-  until `expiresAt + 30` s. A nonce already present is `REPLAY_DETECTED`.
-- Nonces are scoped to the harness: one ledger across all keys.
+- **Recording.** At step 12 the harness records the command's nonce
+  atomically (insert-if-absent) across every gateway process of the harness
+  (§13.2 A1). The record MUST be durable before the command proceeds to step
+  13 and before any answer for it is released. A nonce already present is
+  `REPLAY_DETECTED`.
+- **Durability (r3: MUST).** Nonce records MUST survive harness restarts and
+  crashes. In r2 this was SHOULD, on the grounds that a replay can only repeat
+  an idempotent outcome. That is false for a command that was *refused*: a
+  duplicated copy arriving after a restart can succeed where the original was
+  refused, after Web concluded the job `failed` (§13.2.2,
+  `duplicate-of-refused-command-after-restart`).
+- **Retention (r3).** A record is discarded only once the execution fence
+  excludes its command: `fence ≥ expiresAt + 30` (§10.5). To discard records
+  whose commands have expired (`now ≥ expiresAt + 30` on the harness clock),
+  the harness first raises the fence to at least `expiresAt + 30`, durably and
+  under the ledger lock, and only then discards them. A record is **never**
+  discarded by wall clock alone. If the clock later steps back, a copy whose
+  record was discarded would otherwise pass step 12
+  (`duplicate-after-clock-purge-and-rollback`).
+- Nonces are scoped to the harness: one ledger across all keys and all
+  operations. The same rules apply to status and revoke nonces.
 - If the nonce store cannot be read or written, the harness refuses with
   `NONCE_STORE_UNAVAILABLE`. It never skips the check.
-- Commands refused before the nonce step (§10 steps 1–12) are not recorded,
-  so unauthenticated traffic cannot fill the ledger.
-- The nonce ledger blocks byte replay only. Exactly-once effects come from the
+- Commands refused before the nonce is recorded (§10 steps 1–11, and the
+  audience and time checks of step 12) are not recorded. This keeps
+  unauthenticated traffic out of the ledger. Such refusals are therefore
+  *transmission-only* for Web (§11, §13.2): another copy of the same bytes may
+  pass later.
+- The nonce ledger blocks byte replay. Exactly-once effects come from the
   idempotency ledger (create) and terminal operation states (revoke).
-  Persisting nonces across a harness restart is SHOULD, not MUST: a replay
-  after a restart can only repeat an idempotent outcome.
 
 ### 9.3 Time
 
@@ -413,7 +431,7 @@ MUST NOT be sent. If one is sent anyway, Lightagent answers
 | Admission window (§10 step 12) | `issuedAt − 30 ≤ now < expiresAt + 30`, harness clock |
 | `NOT_YET_VALID` | `issuedAt > now + 30` at step 12 |
 | `EXPIRED` | `now ≥ expiresAt + 30` at step 12, or, for `profile.create`, at step 14 |
-| **Execution deadline** (`profile.create`) | `expiresAt + 30`, on the harness clock, read **after** the ledger lock is acquired (§10 step 14) |
+| **Execution deadline** (`profile.create`) | `expiresAt + 30`, compared after the ledger lock is acquired (§10 step 14) with **both** the harness clock read then **and** the durable execution fence (§10.5) |
 | **Acceptance horizon** of a transmission (a value on Web's clock) | `expiresAt + 60` (§13.2 R3) |
 
 Admission-time expiry and execution-time expiry are separate checks with
@@ -434,11 +452,20 @@ separate meanings:
 Web's conclusions (§13.2) rest on the start bound plus serialization, never on
 elapsed time alone. Command expiry never tells Web what happened to a copy.
 
-The harness MUST use the same wall clock at steps 12 and 14, and SHOULD
-discipline it so that it does not step backwards (slew rather than step). A
-backward step larger than `MAX_CLOCK_SKEW_SECONDS` while creates are waiting
-for the lock voids the §13.2 R3 guarantee for those creates. This is a
-residual risk (§17).
+The harness uses its wall clock for the admission window (step 12) and for
+the wall-clock half of step 14. **Neither is needed for the safety of §13.2.**
+A clock that is wrong, or that steps in either direction (NTP or chrony step
+corrections, VM snapshot restore or migration, manual changes), can only do
+two things:
+
+- cause extra `EXPIRED` or `NOT_YET_VALID` answers, which fail closed;
+- let a stale command reach step 14, where the durable execution fence
+  (§10.5) refuses it.
+
+r2's "backward step larger than 30 s" caveat is wrong: a 1 s step was enough
+(Lightagent PR #28 RC5, `backward-step-while-waiting`). r3 removes the caveat
+by adding the fence. The harness SHOULD still slew its clock rather than step
+it, for liveness.
 
 ## 10. Verification and execution order
 
@@ -448,7 +475,8 @@ step's code.
 - Steps 1–12 are the protocol layer, which every fixture in `commands-*.json`
   exercises.
 - Steps 13–16 run inside Lightagent's provisioning service, reached only after
-  the protocol layer passes. Step 14 is a check that r2 adds (§10.4).
+  the protocol layer passes. Step 14 was added in r2 and extended with the
+  execution fence in r3 (§10.4, §10.5).
 
 Nothing may have a side effect before step 12. No provisioning side effect may
 happen before step 14 passes.
@@ -468,12 +496,14 @@ happen before step 14 passes.
 | 11 | `S < L`, and Ed25519 verifies `signature` over `signingInput` (§6) | `BAD_SIGNATURE` |
 | 12 | `audience` equals this harness id; time window (§9.3); nonce recorded once (§9.2) | `WRONG_AUDIENCE`; `NOT_YET_VALID`, `EXPIRED`; `REPLAY_DETECTED`, `NONCE_STORE_UNAVAILABLE` |
 | 13 | Acquire the provisioning ledger lock (PR #26 `exclusive`: in-process mutex, then the cross-process file lock). The wait is unbounded | — |
-| 14 | **Execution deadline** (`profile.create`): while holding the lock, re-read the harness clock. If `now ≥ expiresAt + 30`, refuse with no effect (§10.4 P1) | `EXPIRED` |
-| 15 | **Local admission** (§10.2), under the lock | §11 admission codes |
+| 14 | **Execution deadline** (`profile.create`): while holding the lock, read the durable fence `F` and re-read the harness clock. Refuse with no effect if `now ≥ expiresAt + 30` **or** `expiresAt + 30 ≤ F` (§10.4 P1, §10.5) | `EXPIRED` |
+| 15 | **Local admission** (§10.2), under the lock. For `profile.create`, on success set `F := max(F, issuedAt − 30)`, durable before the lock is released (§10.5) | §11 admission codes |
 | 16 | Execute through `ProvisioningService` (§10.3), under the lock | §11 payload, merits, operation, conflict and indeterminate codes, or an operation response |
 
-The reference implements steps 1 (size only) to 12 in `verifyCommand`, and
-step 14 in `checkExecutionDeadline`. A negative fixture is single-fault: apart
+The reference implements steps 1 (size only) to 12 in `verifyCommand`, step
+14 in `checkExecutionDeadline`, and the step-15 fence advance in
+`advanceFence`. `simulateOrdering` models steps 12–16 across processes,
+clocks and restarts. A negative fixture is single-fault: apart
 from its one defect, it is canonical and correctly signed, so skipping any
 check makes that vector fail.
 
@@ -502,11 +532,14 @@ administration route. PR #26 tests this route by route
 | `profile.status` | `status(caller, operationId)` | `operation.profile == payload.profileId`, otherwise `UNKNOWN_OPERATION` |
 | `profile.revoke` | `revoke(caller, operationId)` | same |
 
-Lightagent's order inside `provision` is: (lock) → **execution deadline
-(r2)** → admit → idempotency-key format → payload validation → credential
+Lightagent's order inside `provision` is: (lock) → **execution deadline and
+fence check** → admit → **fence advance (r3)** → idempotency-key format → payload validation → credential
 profile limit → **idempotency lookup** → `begin` (issuer allowed, template
 allowed, quota, ledger capacity, profile id unknown, principal resolution) →
-record `pending` → materialize → bind. A `begin` refusal records nothing.
+record `pending` → materialize → bind. In r3, the fence is checked with the
+execution deadline, and advanced durably right after admit. A `begin` refusal
+records nothing in the operation ledger. The fence is not an operation and is
+not keyed.
 §13.2 depends on this order, and any change to it on the Lightagent side is a
 protocol change.
 
@@ -514,20 +547,65 @@ protocol change.
 
 | # | Property | PR #26 today |
 |---|---|---|
-| P1 | **Execution deadline.** For `profile.create`, the check at step 14 runs after the ledger lock is acquired and before the idempotency lookup and any ledger, profile or identity write. It uses a clock value read after acquisition, not the value `provision` reads before locking. A create past its deadline is answered `EXPIRED` **even if its key already has an operation**: the harness neither returns nor resumes that operation, because resuming can write. Web then learns the recorded outcome from a fresh transmission of the same logical command, which returns it (§13.2 R1) | **missing**: `provision` reads `now` before `exclusive()`. Required L3 change: a narrow additive entry point that takes the deadline and checks it inside `exclusive()`. The existing `provision` is unchanged |
+| P1 | **Execution deadline.** For `profile.create`, the check at step 14 (wall clock **and** fence, §10.5) runs after the ledger lock is acquired and before the idempotency lookup and any ledger, profile or identity write. It uses a clock value read after acquisition, not the value `provision` reads before locking, and the fence value read from durable state after acquisition. A create past its deadline is answered `EXPIRED` **even if its key already has an operation**: the harness neither returns nor resumes that operation, because resuming can write. Web then learns the recorded outcome from a fresh transmission of the same logical command, which returns it (§13.2 R1) | **missing**: `provision` reads `now` before `exclusive()`. Required L3 change: a narrow additive entry point that takes the deadline and checks it inside `exclusive()`. The existing `provision` is unchanged |
 | P2 | **Serialization to durability.** Steps 14–16 of every operation run under one lock, held until the call's outcome is durable: a terminal state, a recorded `pending`/`profile_created` followed by an indeterminate error, or a refusal that recorded nothing. Calls on one harness are totally ordered | yes: `exclusive()` holds the mutex and the file lock around the whole `work()` |
 | P3 | **Record before effect.** No profile or identity write precedes the durable recording of the operation under `(provisioner, idempotencyKey)`. Every later call's idempotency lookup therefore sees every operation an earlier call started | yes: `begin` records `pending` before `materialize` and `bind` |
 | P4 | **Terminal create answers.** A `profile.create` is answered with an operation in a terminal state (`completed`, `failed`, `revoked`) or with an error. An interrupted create is answered with an `indeterminate` code, never with `pending` or `profile_created` | yes: `resume` loops to a terminal state or returns the retryable error |
 | P5 | **Status is read-only.** `profile.status` reports the recorded state and current ownership. It never advances, resumes or completes an operation. Recovery of an interrupted create is a resend (§13.3 R4) or an operator `reconcile` | yes: `status` calls only `status_of` |
+| P6 | **Execution fence (r3).** One durable, non-decreasing fence per harness ledger, checked at step 14 and advanced after step 15 for every admitted create, with the advance durable before the ledger lock is released (§10.5) | **missing**: one integer in the ledger state, in the same L3 entry point as P1 |
+| P7 | **Durable nonces (r3).** Nonce records are atomic across gateway processes, durable before the command proceeds or is answered, survive restarts, and are discarded only once the fence excludes them (§9.2) | not applicable: the nonce ledger is new in the L2 gateway |
 
 `profile.status` and `profile.revoke` need no execution deadline. A late
 status is a read. A late revoke only removes a binding that Web asked to
 remove, and it is idempotent. A harness MAY apply step 14 to them as well.
 
 Web MUST NOT register a harness for v1 provisioning unless it conforms to
-P1–P5. Conformance is shown by `execution-deadline.json` and Lightagent's L3
-tests, including the lock-wait race. Against a harness without P1, §13.2 R3's
-horizon clause is unsound.
+P1–P7. Conformance is shown by:
+
+- `execution-deadline.json`, including the fence cases;
+- `ordering-model.json`;
+- Lightagent's L3 tests, including the lock-wait race with a clock step, and
+  a duplicate of a refused command across a restart.
+
+Against a harness without P1, P6 or P7, §13.2 R3 is unsound
+(§13.2.2).
+
+### 10.5 Execution fence (RC5)
+
+| Aspect | Rule |
+|---|---|
+| Identity and scope | **One fence per harness id**, which is one provisioning ledger (§13.2 A1): the integer `execution_fence`, in Unix seconds, starting at `0`, stored in the provisioning ledger's state. It is not keyed by profile, idempotency key, issuer, signing key, controller or provisioner (see "Why harness scope" below) |
+| Durability | Written with the ledger's durable write (temporary file, `fsync`, rename, directory `fsync`, as PR #26 `write_durable`). It never decreases: no code path lowers it |
+| Check (step 14) | Under the ledger lock, read `F` from durable state (never a cached value from an earlier call or another process). Refuse `EXPIRED` with no effect if `expiresAt + 30 ≤ F`. Also refuse if `now ≥ expiresAt + 30`. Equality refuses: fixture `fence-equals-deadline`, with `fence-one-below-deadline` proceeding |
+| Advance (after step 15) | For every `profile.create` that passes local admission, set `F := max(F, issuedAt − 30)`. The new value MUST be durable **before the ledger lock is released**, and so before any answer. Implementations SHOULD write it before the idempotency lookup. The review's wording, "durable before the answer is released", is not enough: a second process can take the lock between unlock and the write and read the old fence (`fence-visible-only-after-unlock`) |
+| Order under the lock | acquire lock → read `F` → step 14 (clock and fence) → step 15 admission → advance and persist `F` → idempotency lookup, `begin`, record, materialize, bind → release lock |
+| Status, revoke | They do not advance the fence. They MAY apply the step-14 checks |
+| Crash | If the process dies before the advance is durable, that create's answer was never released, so Web holds it as uncertain and relies on nothing. If it dies after, the durable value stands |
+| Restore or new ledger | The fence MUST NOT go down. After restoring the ledger or nonce state from a backup, or after initializing a new ledger for an existing harness id, the harness sets `F := max(F_restored, T + 150)` before serving, where `T` is an operator-verified current time. This excludes every command issued before `T`, because `expiresAt + 30 ≤ T + 150`. Commands Web issues in the following 60–120 s are refused `EXPIRED` and retried |
+| Locks | `F` is read and written only under the provisioning ledger lock, the same lock as P2. Nonce discards that raise `F` (§9.2) also take that lock |
+| Key rotation | Adding, rotating, revoking or removing trusted keys never changes `F` |
+| Controller registration | Registering or withdrawing a provisioner, rotating its local credential, or changing the `keyId` → credential mapping never changes `F`. Only replacing the ledger triggers the restore rule |
+| Concurrent creates | Serialized by the lock. `F` is the maximum of `issuedAt − 30` over admitted creates (and of discarded nonces' `expiresAt + 30`) |
+| Replay and exact redelivery | A byte-identical copy is `REPLAY_DETECTED` while its nonce record exists. Once that record is discarded, `F ≥ expiresAt + 30` (§9.2), so step 14 refuses it. A redelivery (§9.1) has fresh stamps and is unaffected |
+| Legitimate retries | The fence refuses a create only if `expiresAt + 30 ≤ issuedAt' − 30` for some admitted create `issuedAt'`, that is, only if it was issued at least 120 s before the newest admitted create. Web's fresh retries are never refused, unless Web's own clock steps back by more than about 120 s. In that case they fail closed with `EXPIRED` until the clock catches up |
+| Liveness cost | None with a clock that does not step back. Step 12 admits only `issuedAt ≤ now + 30`, so every advance satisfies `F ≤ now` at that moment, and a fence refusal implies `expiresAt + 30 ≤ F ≤ now`, which the wall clock refuses anyway. In the fixtures and randomized schedules, removing the wall-clock check changes no outcome |
+| Bad input | A command cannot push `F` into the future. Step 12 bounds `issuedAt − 30 ≤ now`. A harness clock running fast raises `F` only up to its own `now`, which fails closed until real time catches up |
+
+**Why harness scope.** Lemma 2 of §13.2.1 needs the advance by `t` to be
+visible to every later copy of `u`. `u` and `t` belong to one job, so they
+share profile, idempotency key and provisioner. A per-key or per-provisioner
+fence would therefore also satisfy Lemma 2. A per-profile fence would too, for
+one job. Harness scope is still chosen, for four reasons:
+
+- it is one durable value;
+- it is what the review proposed;
+- it covers the nonce-discard rule (§9.2) for every command, including
+  status and revoke, without a lookup;
+- the liveness argument above shows that it costs nothing.
+
+A narrower fence is permitted only if it is at least as strict for every
+command of the job (same profile and key), and if the §9.2 discard rule
+raises the matching fence.
 
 ## 11. Errors
 
@@ -544,6 +622,20 @@ class and applicable operations, is `errors.json`. It is normative.
 | `operation` | status/revoke on a known operation id | `UNKNOWN_OPERATION` 404, `OPERATION_IN_PROGRESS` `NOT_REVOCABLE` `OWNERSHIP_CHANGED` 409 |
 | `conflict` | Web defect: the same key with a different payload. Never a failure | `IDEMPOTENCY_CONFLICT` 409 |
 | `indeterminate` | The command **may have taken effect**. Treated exactly like a timeout | `STORAGE_UNAVAILABLE` `STORAGE_CORRUPT` `IDENTITY_UNAVAILABLE` 503, `INTERNAL_ERROR` 500, `REPLAY_DETECTED` 409 |
+
+**Finality of a refusal for create resolution (r3).** Each code in
+`errors.json` carries `createResolution`, which is derived from its class:
+
+| `createResolution` | Classes | Meaning |
+|---|---|---|
+| `final` | `payload`, `admission`, `merits` | No copy of this transmission can ever take effect. Admission and merits refusals come after the nonce was durably recorded (§9.2). Payload refusals are deterministic in the payload |
+| `transmission-only` | `protocol` | This copy had no effect. Another copy of the same bytes may still pass later: these refusals come before the nonce is recorded and depend on harness configuration (keys, harness id) or its clock. `EXPIRED` is in this group because it can come from step 12 as well as step 14 |
+| `indeterminate` | `indeterminate` | This copy may have taken effect |
+| `conflict`, `not-applicable` | `conflict`, `operation` | A Web defect, or a code that never answers create |
+
+r2 treated `protocol` refusals as final. That was unsafe: the fixture
+`pre-nonce-refusal-then-duplicate` shows a create refused `UNKNOWN_KEY`
+whose duplicate binds after the operator adds the key.
 
 `REPLAY_DETECTED` is indeterminate because a network-duplicated copy of the
 same transmission may have been the one that executed. `STORAGE_UNAVAILABLE`
@@ -797,9 +889,17 @@ A Web profile shown as `revoked` means access is withdrawn by Web. It means
 
 ### 13.2 Resolving a create (rules R1–R3)
 
-Inputs: every transmission of the job, with its `issuedAt`, `expiresAt` and
-§12.4 outcome. Reference: `resolveCreateJob`. Fixtures:
-`create-resolution.json`.
+**Inputs.** The inputs are every transmission in the job's **journal**
+(§13.10), each with its `issuedAt`, `expiresAt` and §12.4 outcome.
+
+- A journaled transmission without a recorded answer is `uncertain`, whatever
+  the reason (it was never sent, the Worker crashed, it timed out).
+- A transmission outside the journal cannot exist: nothing is sent before it
+  is journaled (RC6).
+- Refusal finality is the `createResolution` of §11.
+
+Reference: `resolveCreateJob`. Fixtures: `create-resolution.json` and
+`ordering-model.json`.
 
 - **R1. An operation resolves the job.** If any transmission returned an
   operation, the job is resolved with that `operationId`, in its state,
@@ -808,47 +908,156 @@ Inputs: every transmission of the job, with its `issuedAt`, `expiresAt` and
 - **R2. Payload refusals are final.** If any transmission was refused with a
   `payload`-class code, the job is `failed` with that code, because the same
   payload can never succeed.
-- **R3. Otherwise, refusals count only when they rule out every uncertain
-  transmission.** The job is `failed` only if, for **every** `uncertain`
-  transmission `u`, some transmission `t` was refused with a `merits`-class
-  code and `t.issuedAt ≥ u.expiresAt + 60` (u's acceptance horizon). If there
-  is no uncertain transmission, every transmission was refused before any side
-  effect, so nothing exists and the job is `failed` with the latest code.
+- **R3. Otherwise, a job fails only when every transmission is accounted
+  for.** Call a transmission *open* if it is `uncertain`, or if it was refused
+  `transmission-only`.
+  - The job is `failed` only if, for **every** open transmission `u`, some
+    transmission `t` was refused with a `merits`-class code and
+    `t.issuedAt ≥ u.expiresAt + 60` (`u`'s acceptance horizon).
+  - If no transmission is open (every one was refused `final`), nothing
+    exists, and the job is `failed` with the latest code.
 - Otherwise the job is **unresolved**. `IDEMPOTENCY_CONFLICT` and unknown
   codes are anomalies (`needs attention`), never failures.
 
-Why R3 is stated this way:
+**Consequences:**
 
-- `admission` and `protocol` refusals happen before the idempotency lookup, so
-  they say nothing about whether an earlier copy committed. That includes
-  `EXPIRED` from step 14.
-- A `merits` refusal of `t` happens under the ledger lock and after the
-  lookup. It proves that, at the moment `t` held the lock, no operation was
-  recorded for the key (P3), and that no other call was executing (P2).
-- `u` can no longer *start* after `t`, because of the execution deadline
-  (P1). `t` passed admission, so `t` acquired the lock at harness time
-  ≥ `t.issuedAt − 30` ≥ `u.expiresAt + 30`, which is `u`'s execution
-  deadline. Any later lock acquisition by `u` is refused `EXPIRED` at step
-  14, with no effect. The inequality uses only the harness's own clock
-  against the Web stamps it checked, so it holds for any Web–harness skew the
-  harness accepted.
-- If `u` started before `t`, P2 made `t` wait until `u`'s outcome was
-  durable, and P3 would then have made `t`'s lookup find `u`'s operation and
-  return it instead of refusing.
+- Exhausted retries never produce `failed` (`timeouts-exhausted`), and
+  neither does elapsed time alone (`elapsed-time-alone`).
+- A timeout followed by a quick `QUOTA_EXCEEDED` stays unresolved
+  (`timeout-then-merits-too-early`).
+- A lone `UNKNOWN_KEY` or `EXPIRED` stays unresolved, and Web keeps
+  reconciling (`single-protocol-refusal`, `single-expired-refusal`). This also
+  covers the review's recommendation to retry transient refusals.
 
-So R3's conclusion depends on P1–P3 together, not on elapsed time.
-**Expiry alone never proves that a started create did not complete**
-(`begun-before-deadline-completes-late` in `execution-deadline.json`). An
-uncertain transmission stays under reconciliation until R1–R3 apply,
-however much time passes (`elapsed-time-alone`, `timeouts-exhausted`).
-Without P1, the lock-wait race in `execution-deadline.json` makes R3 unsound
-(`unsafe: true`). With P1 it is safe. The workerd contract test checks this
-on 20,000 random serialized schedules, with skew within ±30 s, lock waits,
-slow commits, lost answers, and crashes after recording.
+#### 13.2.1 Safety invariant and proof
 
-**Consequences:** exhausted retries never produce `failed`
-(`timeouts-exhausted`). A timeout followed by a quick `QUOTA_EXCEEDED` stays
-unresolved (`timeout-then-merits-too-early`).
+**Invariant S.** If Web concludes `failed` for a `profile.create` job, then no
+operation is recorded, now or at any later time, under the job's
+`(provisioner, idempotencyKey)`. No owner binding therefore results from that
+job.
+
+Assumptions. Each one is a normative requirement elsewhere in this document:
+
+| # | Assumption | Where |
+|---|---|---|
+| A1 | One harness id is exactly one provisioning ledger: one lock, one fence, one nonce store, shared by every gateway process. Two ledgers behind one endpoint, for example behind a load balancer, break idempotency itself and are forbidden | §10.4, §10.5 |
+| A2 | Every trusted `keyId` of the Web environment maps to the same provisioner principal, so every transmission of a job has one idempotency scope | §6.4 |
+| A3 | P2 (serialization to durability) and P3 (record before effect) | §10.4 |
+| A4 | The fence: durable, never decreasing (including the restore rule), checked at step 14 under the lock, and advanced after step 15 under the lock, durably before the lock is released | §10.5 |
+| A5 | Nonces: recorded atomically at step 12, durable before the command proceeds or is answered, and discarded only when `F ≥ expiresAt + 30` | §9.2 |
+| A6 | Journal: every transmission that can reach the harness is journaled before it is sent; rows are never deleted; recorded answers are final | §13.10 |
+| A7 | Truthful classification: an answer that Web classifies as an operation or a refusal was produced by the harness for that transmission (authenticated HTTPS plus correlation). Forged answers are outside S | §12.1, §12.5 |
+| A8 | Only this job uses its idempotency key (unique in D1), and the §8 validation rules do not change within a revision | §9.1, D1 |
+
+**Not assumed:**
+
+- anything about the harness clock: it may be wrong and may step in either
+  direction;
+- any bound on how long a call waits for the lock, or how long a started
+  execution takes;
+- anything about network delay, loss, duplication or reordering;
+- any bound on Web–harness skew.
+
+**Lemma 1 (final refusals).** If Web received a `final` refusal for
+transmission `x`, no copy of `x` ever records an operation.
+
+*Proof.*
+
+1. `admission` and `merits` refusals are produced at steps 15–16, after `x`'s
+   nonce was durably recorded at step 12 (A5).
+2. The insert is atomic, so the copy `c` that Web received the answer from is
+   the copy that recorded the nonce. Any other copy that arrived while the
+   record existed answered `REPLAY_DETECTED`, which is indeterminate.
+3. `c` recorded no operation. A refusal at step 15 writes nothing, and a
+   `begin` refusal records nothing (P3).
+4. A later copy finds the record and is refused. The record is discarded only
+   once `F ≥ x.expiresAt + 30` (A5). After that, `F` never decreases (A4), so
+   step 14 refuses every copy with no effect.
+5. `payload` refusals are deterministic in the payload, which every copy and
+   every transmission of the job share (§9.1, A8). □
+
+**Lemma 2 (exclusion by a later merits refusal).** If transmission `t` was
+refused on the merits and `t.issuedAt ≥ u.expiresAt + 60`, no copy of `u`
+ever records an operation.
+
+*Proof.*
+
+1. `t` passed step 15. Before `t` released the lock, `F` became durably
+   `≥ t.issuedAt − 30 ≥ u.expiresAt + 30` (A4).
+2. Take any copy `c` of `u` that reaches step 14. Calls are serialized (A3),
+   so there are two cases.
+3. **`c` takes the lock after `t` releases it.** `F` is already
+   `≥ u.expiresAt + 30` and has not decreased, so step 14 refuses `c` with no
+   effect. This holds whatever the clock reads.
+4. **`c` held the lock before `t`.** `c`'s call completed durably before
+   `t`'s began (P2). If `c` recorded an operation, it did so under the
+   job's key (A2, A8). `t`'s idempotency lookup would then have found it
+   (P3), and `t` would have answered with that operation, not a merits
+   refusal (A7). □
+
+**Theorem.** Suppose Web concludes `failed`.
+
+- By R2, Lemma 1 (payload case) applies to every transmission.
+- By R3, every open transmission is excluded by Lemma 2, and every other
+  transmission is a `final` refusal, excluded by Lemma 1.
+
+By A6, these are all the transmissions that can reach the harness. So no copy
+of any transmission records an operation, and by A8 nothing else uses the
+key. ∎
+
+The harness clock appears nowhere in the proof. The wall-clock half of step
+14 bounds execution in normal operation; safety rests on the fence. The
+randomized schedules agree: removing the wall-clock check produces no unsafe
+schedule.
+
+#### 13.2.2 Counterexamples: why each r3 rule is needed
+
+Each scenario in `ordering-model.json` is evaluated under r2, under the
+review's literal RC5/RC6 proposal, under r3, and under r3 with one rule
+removed. `unsafe` means Web concluded `failed` while an operation exists.
+
+| Scenario | Unsafe under | Rule that defeats it |
+|---|---|---|
+| `backward-step-while-waiting` (the review's RC5 case) | r2, r3 without fence | fence check (A4) |
+| `fence-visible-only-after-unlock` | r2, review proposal, r3 without fence, r3 with fence durable only after unlock | fence durable before unlock (A4). **New in r3**, not in the review |
+| `duplicate-of-refused-command-after-restart` | r2, review proposal, r3 without durable nonces | durable nonces (A5). **New in r3** |
+| `duplicate-after-clock-purge-and-rollback` | r2, review proposal, r3 discarding nonces by clock | discard only when fenced (A5). **New in r3** |
+| `pre-nonce-refusal-then-duplicate` | r2, review proposal, r3 treating protocol refusals as final | `transmission-only` refusals (§11). **New in r3** |
+| `unjournaled-transmission` (the review's RC6 case) | r2, r3 without journal | write-before-send journal (A6) |
+| `crash-after-record-restart-resend`, `maximum-skew-no-step`, `completion-after-expiry`, `overlapping-windows-out-of-order` | none | (liveness and positive cases) |
+
+#### 13.2.3 Test evidence
+
+The tests check that the model and the fixtures agree with the proof. They do
+not replace it.
+
+`tests/contracts/provisioning-protocol.test.ts` runs in workerd:
+
+- **Broad schedules.** Seed `0x7a3c2026`, 30,000 schedules:
+  - 1–4 transmissions, with gaps of 0–250 s or at the horizon;
+  - 0–2 copies of each, delays up to 400 s, lock waits up to 300 s, holds up
+    to 200 s;
+  - a clock offset of ±30 s plus up to two steps of ±90 s;
+  - restarts, housekeeping, a key trusted late, quota windows, crashes after
+    record, lost answers, and unjournaled sends.
+- **Focused hazards.** Seed `0x5afe0003`, 25,000 per family:
+  - lock-wait with a backward step around a refusal at the horizon;
+  - a duplicate of a refused command across a restart, and across a clock
+    jump with a purge.
+- **Results.**
+  - r3 is unsafe in 0 schedules.
+  - r3 without the wall-clock check is also unsafe in 0.
+  - Every other rule set and every ablation has counterexamples in its
+    family.
+  - The exact counts are printed by the test and listed in §18.
+
+`tests/contracts/provisioning-journal.test.ts` checks the §13.10 journal on
+real D1.
+
+**Not modelled:** forged answers (§12.1), a compromised harness, two ledgers
+behind one harness id (A1), and Web clock errors. Web clock errors do not
+affect S, because the proof uses only Web's signed stamps; they can only cost
+liveness (§10.5).
 
 ### 13.3 Driving an unresolved create (rule R4)
 
@@ -983,6 +1192,89 @@ binding created and then revoked within minutes grants nothing usable
 `unsupported-profile-lookup`). Either side may propose it for a later
 revision with these semantics.
 
+### 13.10 Transmission journal: write before send (RC6)
+
+**Invariant J.** Every transmission that could reach a harness is
+represented in Web's durable D1 journal before any byte of it leaves the
+Worker. Create resolution (§13.2) reads only the journal. An in-memory value,
+the request's lifetime, a log line or `waitUntil` is never evidence that a
+transmission was or was not sent.
+
+Required sequence for each transmission:
+
+| # | Step | Durable effect |
+|---|---|---|
+| 1 | Authenticate and authorize the user (existing guard) | — |
+| 2 | Persist the job and the desired state | `provisioning_jobs` row, with the desired state on the profile and job |
+| 3 | Fix the logical command: canonical payload, `payloadHash`, operation, harness, idempotency key | Persisted with the job, never recomputed from mutable rows (a rename must not change a retry's payload) |
+| 4 | Claim the job's delivery lease and insert the transmission row. Identity: `command_id`, `seq`, nonce hash, `key_id`, `harness_id`, operation, `payload_hash`, `issued_at`, `expires_at` (the deadline), state `journaled` | **One D1 batch** (a transaction). Losing the claim inserts nothing |
+| 5 | Commit | The batch returns. Only now may the command be signed and sent |
+| 6 | Sign and send over HTTPS (§3) | — |
+| 7 | Persist the answer (`answered`, final), or mark the row `uncertain` (timeout, network error, `RESPONSE_INVALID`, indeterminate code), and release the lease | Atomic batch |
+| 8 | Reconcile: §13.2 over the journal, then §13.3–§13.5 (status, R4 resends with the same logical command, revoke) | — |
+
+Rules:
+
+- **A journal row is not delivery.** A `journaled` row says only that the
+  transmission *may* have been sent. With no recorded answer, it is uncertain
+  for resolution. It is never `refused`, `failed` or "not sent".
+- **No resend of a journaled transmission's bytes.** The plaintext nonce
+  lives only in the sending Worker's memory. The journal stores its SHA-256.
+  A retry is a new transmission with a new row and the same logical command
+  (§9.1).
+- **Crash after send, before step 7:** the row stays `journaled`. Recovery
+  makes it `uncertain`. Its identity (`issued_at`, `expires_at`, payload
+  hash, key) is enough for R3 and for R4 resends.
+- **A late answer** after recovery marked the row uncertain may still be
+  recorded, because more information is allowed. A recorded answer is
+  final.
+
+Protocol-level D1 constraints. They are to be implemented by an **additive
+migration 0003 or later**. 0001 and 0002 are never edited.
+
+| Constraint | Purpose |
+|---|---|
+| `command_id` primary key; `nonce_hash` UNIQUE; `(job_id, seq)` UNIQUE | One row per transmission, no nonce reuse, ordered history |
+| Insert trigger: `payload_hash` equals the job's fixed payload hash | Retries cannot change the logical command |
+| `expires_at > issued_at` and `expires_at − issued_at ≤ 120` | Matches §9.3 |
+| Update trigger: an `answered` row is immutable; identity columns never change; `uncertain` never returns to `journaled` | The history Web reasons over is stable |
+| Delete trigger: refuse | Append-only. Retention may archive rows only after the job is terminal and every row's horizon has passed |
+| Job delivery lease (`lease_token`, `lease_until`, both or neither) | Concurrency-safe claiming |
+
+**Claiming and leases.**
+
+- A Worker claims with a conditional
+  `UPDATE … SET lease_token = ?, lease_until = ?, next_seq = next_seq + 1
+  WHERE job_id = ? AND (lease_until IS NULL OR lease_until <= now)`.
+- In the same batch it runs
+  `INSERT … SELECT … WHERE lease_token = ?` for its own token, so only the
+  winner inserts.
+- Concurrent claims produce exactly one row. A Worker that loses inserts
+  nothing and sends nothing.
+- **Lease recovery:** the reconciler turns `journaled` rows of expired leases
+  into `uncertain` and clears the lease.
+- A stalled Worker whose lease expired may still send its journaled row,
+  while a new Worker journals and sends another. Both rows exist, both are
+  reasoned over, and the harness's idempotency makes them one operation. The
+  lease is an efficiency measure. **Safety rests on J, not on the lease.**
+
+Reference: `tests/contracts/provisioning/journal.ts`, test-only and not a
+migration. It runs on real D1 in workerd
+(`provisioning-journal.test.ts`), covering each of these:
+
+- a crash before journaling;
+- a crash after commit, before send;
+- a crash during send;
+- a crash after send, before persistence;
+- a lost refusal;
+- 8 concurrent claims;
+- a stalled Worker overlapping a new one;
+- retry identity and the payload-mismatch trigger;
+- append-only and final rows;
+- suspension while uncertain (resend, then revoke);
+- late completion after a restart;
+- safe failure classification.
+
 ## 14. Lightagent audit items C1–C10
 
 | # | Audit item | Resolution in this revision |
@@ -1007,8 +1299,9 @@ revision with these semantics.
 | `commands-invalid.json` | Single-fault negative vectors with the expected code and HTTP status |
 | `redelivery.json` | Create and revoke transmission series, including one across a key rotation, a replay, and a "not a redelivery" counter-example |
 | `responses.json` | Response bodies and Web's expected classification |
-| `create-resolution.json` | R1–R3 decision cases, including the horizon boundary (±1 s), `EXPIRED` at execution, and elapsed time alone |
-| `execution-deadline.json` | §10 step 14: single deadline checks (including admitted-in-time, locked-too-late), and harness race scenarios (lock-wait race, late completion, crash after record, delayed admission, merits before horizon), each evaluated with and without step 14 |
+| `create-resolution.json` | R1–R3 decision cases, including the horizon boundary (±1 s), `EXPIRED` at execution, elapsed time alone, `transmission-only` refusals (r3), and the reconciliation plan (`send-create`, `revoke`, `confirm-status`, `operator-attention`, `none`) for desired present and absent |
+| `execution-deadline.json` | §10 step 14: single checks, each with `fence` (0 for the r2 cases; r3 adds fence = deadline → refuse, fence = deadline − 1 → proceed, and a clock rolled back below a raised fence), and the r2 race scenarios with and without step 14 (clock never steps) |
+| `ordering-model.json` | r3: the rule sets and the deterministic scenarios of §13.2.2, each evaluated under every rule set (`simulateOrdering`) |
 | `errors.json` | The normative error registry |
 | `MANIFEST.json` | Protocol, revision, schema ids, fixture ids, specification and file SHA-256 hashes, `fixtureDigest` |
 | `MANIFEST.sha256` | The same hashes in `sha256sum -c` format (run it from the Web repository root) |
@@ -1030,6 +1323,17 @@ revision with these semantics.
 
   The second commit changes no hashed byte, so the digest is identical at
   both commits. Reviewers verify the candidate commit's bytes.
+- **Portable delivery.** While the Web repository has no remote, the review
+  branch is delivered as a `git bundle` with full ancestry. Its path and
+  SHA-256 are recorded in `ACCEPTANCE.md`. A reviewer verifies it in four
+  steps:
+  1. `git bundle verify`;
+  2. clone it;
+  3. check the candidate SHA;
+  4. run `git archive <candidate> docs/PROVISIONING_PROTOCOL.md protocol | tar -x`
+     and `sha256sum -c protocol/la-web-provisioning-1/MANIFEST.sha256`.
+
+  The reviewer imports the exact committed bytes, never a regeneration.
 - The generator is deterministic (`npm run protocol:fixtures -- write|check`).
   `tests/static/provisioning-fixtures.test.ts` fails if any committed byte
   differs from a regeneration or from the manifest.
@@ -1039,11 +1343,16 @@ revision with these semantics.
   keep the hashed bytes.
 - A verifier passes the fixtures when every `commands-*` and `redelivery`
   vector gives exactly its `expect`, and every `execution-deadline.json`
-  `deadlineCases` entry gives its `expect`. A Web implementation additionally
-  passes `responses.json` and `create-resolution.json`. A harness's L3 tests
-  reproduce the lock-wait race against the real service: one create blocked
-  on the lock past its deadline while another call holds it MUST answer
-  `EXPIRED` and record nothing.
+  `deadlineCases` entry (with its `fence`) gives its `expect`.
+- A Web implementation additionally passes `responses.json` and
+  `create-resolution.json`.
+- An ordering model passes when it reproduces `ordering-model.json`.
+- A harness's L3 tests reproduce the following against the real service:
+  - a create blocked on the lock past its deadline, while another call
+    holds it, answers `EXPIRED` and records nothing;
+  - the same with the clock stepped back but the fence raised;
+  - a duplicate of a refused create across a restart answers
+    `REPLAY_DETECTED`.
 
 ## 16. Required follow-up work (not part of L0)
 
@@ -1058,9 +1367,10 @@ revision with these semantics.
 3. `PROVISIONING_ISSUER`, a non-secret https origin identifier, explicit per
    environment. Development needs an `https://` identifier even though
    `PUBLIC_ORIGIN` is `http://localhost:5173`.
-4. A new migration (0003 or later). Never edit 0001 or 0002. It adds a
-   transmissions record per job (`command_id`, nonce hash, `key_id`,
-   `issued_at`, `expires_at`, outcome, code), which R3 needs, and job columns
+4. A new migration (0003 or later). Never edit 0001 or 0002. It adds the
+   §13.10 transmission journal (RC6, required before any delivery), its
+   triggers, the job's fixed canonical payload and delivery lease, and job
+   columns
    `operation_id`, `principal_id`, `observed_state`, `observed_at`,
    `needs_attention` and `next_attempt_at`. It decouples reconciliation from
    the `attempt_count ≤ 10` CHECK, which must stop counting reconciliation
@@ -1098,20 +1408,30 @@ revision with these semantics.
 3. Ed25519 through `ring`, with an explicit `S < L` check.
 4. Fail-closed configuration: own `harnessId`, the trusted-key list,
    `keyId` → local credential key id (all mapping to one provisioner).
-5. A nonce ledger (§9.2) checked and recorded before admission.
+5. A nonce ledger (§9.2, P7): atomic across gateway processes, durable
+   before proceeding or answering, surviving restarts, and discarded only
+   once the fence excludes the command (raise the fence first).
 6. The §10.3 adapter: `caller_for_at` with the mapped credential, the
    `profileId` consistency check for status and revoke, uppercase code
    mapping, failed operations as `200`/`201` operation responses, and echoes.
 7. Regression tests for S1 and S2 (added as `web_*` tests in PR #28).
 8. A mirror of the specification and fixtures, with a CI job that runs every
    vector and checks `MANIFEST.sha256`.
-9. **§10.4 P1 (L3, required):** a narrow, additive `ProvisioningService` entry
-   point for the gateway's creates. It reads the clock **inside**
-   `exclusive()`, refuses `EXPIRED` when `now ≥ deadline` before admission,
-   the idempotency lookup and any write, and is otherwise `provision`. The
-   existing `provision` and its HTTP API stay unchanged. Tests: a create
-   blocked on the lock past its deadline records nothing; a create admitted
-   in time completes even if its commit finishes after the deadline (P2).
+9. **§10.4 P1 and P6 (L3, required):** a narrow, additive
+   `ProvisioningService` entry point for the gateway's creates. Inside
+   `exclusive()`:
+   - it reads the clock and the durable `execution_fence`;
+   - it refuses `EXPIRED` when `now ≥ deadline` or `deadline ≤ fence`;
+   - after admit, it sets `fence := max(fence, issuedAt − 30)` and saves it
+     durably before the lock is released;
+   - it is otherwise `provision`.
+
+   The existing `provision` and its HTTP API stay unchanged. Tests:
+   - a create blocked on the lock past its deadline records nothing;
+   - the same with a backward clock step and a raised fence;
+   - a create admitted in time completes even if its commit finishes after
+     the deadline (P2);
+   - a restore never lowers the fence (§10.5).
 
 ## 17. Open points and residual risks
 
@@ -1121,21 +1441,66 @@ Resolved in r2 by Lightagent's review (PR #28):
 - **Retrying a failed create on the same id**: confirmed by the PR #28 test
   `web_a_failed_create_leaves_its_profile_id_available_to_a_new_key` (§13.3).
 
+Resolved in r3: harness clock steps (RC5, the fence) and write-before-send
+(RC6, the journal). r3 also resolves three further gaps found while proving
+RC5: fence durability before unlock, durable nonces discarded only under the
+fence, and `transmission-only` refusals.
+
 Still open:
 
 1. **`profile.lookup`** (§13.9) is deferred, not rejected. It would also
    close the "forged refusal cannot be re-checked" residual risk (§12.1).
 2. **Response signing** is gated, not dropped (§12.1 gates a–c).
-3. **Clock discipline**: a backward clock step larger than 30 s on the
-   harness, while creates wait for the lock, voids R3 for them (§9.3).
+3. **Restores and ledger replacement** must follow the §10.5 restore rule,
+   with an operator-verified time. A restore without it can lower the fence
+   and void S. This is operational, and covered by Lightagent's existing
+   restore procedure (PR #26 §12).
 4. **Unsigned responses**: the residual risks listed in §12.1 are accepted
    for v1 only within the §12.5 ingress definition.
 5. **Harness reachability** (direct HTTPS or a §12.5 tunnel) is a deployment
    choice per harness. It is recorded in that harness's registration review.
+6. **Forged answers** stay outside invariant S (A7). See §12.1.
+7. **Web's own clock** stepping back by more than about 120 s causes
+   fail-closed `EXPIRED` answers until it catches up. Safety is unaffected.
 
 ## 18. Revision history
 
-### r2 (this revision)
+### r3 (this revision)
+
+Resolves Lightagent's review of r2 (PR #28 `l0-protocol-review.md`, reviewed
+digest `8649b453…b9a`, candidate `d31e544`). Wire format, signatures, JCS,
+envelope, payloads, response schema, `ownerBound`, `INVALID_TEMPLATE`, NFC and
+T1–T7 are unchanged. Every r2 command, redelivery, response and key vector is
+unchanged.
+
+| Item | Change |
+|---|---|
+| RC5 execution fence | §10.5 (new). Step 14 checks `deadline ≤ F`, and step 15 advances `F`. P6. §9.3 replaces r2's clock caveat. Fence cases in `execution-deadline.json` |
+| RC5, refined: fence durable before unlock | §10.5. The review's "durable before the answer" is not enough (`fence-visible-only-after-unlock`) |
+| New: durable nonces, discarded only under the fence | §9.2, P7. A duplicate of a *refused* command could bind after a restart, or after a clock purge and rollback |
+| New: `transmission-only` refusals | §11, §13.2 R3, the `createResolution` field in `errors.json`. A pre-nonce refusal could be followed by a binding duplicate |
+| RC6 write-before-send journal | §13.10 (new): sequence, invariant J, D1 constraints, claiming, lease recovery, and the test-only D1 reference |
+| Proof | §13.2.1: invariant S, assumptions A1–A8, two lemmas, theorem. §13.2.2: counterexamples. §13.2.3: test evidence |
+| Fixtures | `ordering-model.json` (new). `create-resolution.json` gains cases and `plan`. `execution-deadline.json` gains `fence`. `errors.json` gains `createResolution` |
+| Delivery | §15 two-commit procedure, plus a `git bundle` |
+
+Randomized results, as the test prints them. Each count is the number of
+schedules in which a rule set is unsafe.
+
+| Rule set | Broad (seed `0x7a3c2026`, 30,000 schedules) | Lock-wait hazards (seed `0x5afe0003`, 25,000) | Duplicate hazards (seed `0x5afe0003`, 25,000) |
+|---|---|---|---|
+| r3 | 0 | 0 | 0 |
+| r3 without the wall-clock check | 0 | 0 | 0 |
+| r2 | 422 | 1,268 | 25,000 |
+| Review proposal | 133 | 319 | 25,000 |
+| r3 without the fence | 0 | 1,268 | 0 |
+| r3, fence durable only after unlock | 0 | 319 | 0 |
+| r3 without durable nonces | 0 | 0 | 13,014 |
+| r3, nonces discarded by clock | 0 | 0 | 12,550 |
+| r3, protocol refusals treated as final | 132 | 0 | 0 |
+| r3 without the journal | 7 | 0 | 0 |
+
+### r2
 
 Resolves Lightagent's review of r1 (PR #28,
 `docs/integrations/web/l0-protocol-review.md`, reviewed digest

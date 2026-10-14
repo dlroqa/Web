@@ -1,0 +1,1993 @@
+{
+  "protocol": "LA-WEB-PROVISIONING/1",
+  "fixtureSet": "la-web-provisioning-1/r3",
+  "kind": "ordering-model",
+  "description": "Deterministic ordering scenarios for one harness and one profile.create job (§13.2). Each is evaluated under every rule set in `ruleSets`. `unsafe` means Web concluded failed (`failedAt`) while an operation exists that a transmission issued by then recorded. Times are Unix seconds; deliveries are copies of a transmission reaching the harness.",
+  "ruleSets": {
+    "r2": {
+      "executionDeadline": true,
+      "fence": false,
+      "fenceDurableBeforeUnlock": false,
+      "nonceDurable": false,
+      "nonceRetainedUntilFenced": false,
+      "protocolRefusalsFinal": true,
+      "journalBeforeSend": false
+    },
+    "reviewProposal": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": false,
+      "nonceDurable": false,
+      "nonceRetainedUntilFenced": false,
+      "protocolRefusalsFinal": true,
+      "journalBeforeSend": true
+    },
+    "r3": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true
+    },
+    "r3-without-wall-clock-deadline": {
+      "executionDeadline": false,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true
+    },
+    "r3-without-fence": {
+      "executionDeadline": true,
+      "fence": false,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true
+    },
+    "r3-fence-durable-only-after-unlock": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": false,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true
+    },
+    "r3-without-durable-nonces": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": false,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true
+    },
+    "r3-nonces-discarded-by-clock": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": false,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": true
+    },
+    "r3-protocol-refusals-final": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": true,
+      "journalBeforeSend": true
+    },
+    "r3-without-journal": {
+      "executionDeadline": true,
+      "fence": true,
+      "fenceDurableBeforeUnlock": true,
+      "nonceDurable": true,
+      "nonceRetainedUntilFenced": true,
+      "protocolRefusalsFinal": false,
+      "journalBeforeSend": false
+    }
+  },
+  "scenarios": [
+    {
+      "id": "backward-step-while-waiting",
+      "description": "The review's RC5 case. The harness runs 30 s behind Web. u is admitted and waits for the lock. t, issued at u's horizon, is refused on the merits at harness time u.expiresAt + 30. The clock then steps back 4 s, and u acquires the lock at T0 + 123 while the harness clock reads u.expiresAt + 29.",
+      "assumptions": "Clock offset -30 s (r2's skew limit), then a backward step. Quota frees at T0 + 121. u's answer is lost.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000120,
+            "expiresAt": 1791000180
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000005,
+            "lockAt": 1791000123,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000120,
+            "lockAt": 1791000120
+          }
+        ],
+        "harnessClock": [
+          {
+            "from": 0,
+            "offset": -30
+          },
+          {
+            "from": 1791000121,
+            "offset": -34
+          }
+        ],
+        "quota": [
+          [
+            1791000121,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "fence-visible-only-after-unlock",
+      "description": "As above, but u acquires the lock at the instant t releases it. If the fence advance is written only after the lock is released (the review's wording allows that: 'durable before the answer'), u reads the old fence from the ledger and binds.",
+      "assumptions": "Same clock as above, with the step at T0 + 121 to offset -32. A second gateway process takes the lock at t's release.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000120,
+            "expiresAt": 1791000180
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000005,
+            "lockAt": 1791000121,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000120,
+            "lockAt": 1791000120
+          }
+        ],
+        "harnessClock": [
+          {
+            "from": 0,
+            "offset": -30
+          },
+          {
+            "from": 1791000121,
+            "offset": -32
+          }
+        ],
+        "quota": [
+          [
+            1791000121,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "r3": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": true
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "duplicate-of-refused-command-after-restart",
+      "description": "Web's only transmission is refused QUOTA_EXCEEDED, so every transmission was refused before any effect and Web concludes failed. The harness restarts and loses non-durable nonces. A network-duplicated copy of the same bytes then arrives within its window, after quota frees, and binds.",
+      "assumptions": "No clock error. One duplicate copy (a proxy or tunnel retry). Restart at T0 + 10.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001
+          },
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000020,
+            "answerToWeb": false
+          }
+        ],
+        "restarts": [
+          1791000010
+        ],
+        "quota": [
+          [
+            1791000015,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "r3": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "duplicate-after-clock-purge-and-rollback",
+      "description": "As above, without a restart. The harness clock jumps 70 s ahead, and housekeeping discards the nonce by wall clock. The clock then returns, and the duplicate passes step 12 and the wall-clock part of step 14.",
+      "assumptions": "Clock +70 s from T0 + 30 to T0 + 40, housekeeping at T0 + 35.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001
+          },
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000045,
+            "answerToWeb": false
+          }
+        ],
+        "harnessClock": [
+          {
+            "from": 0,
+            "offset": 0
+          },
+          {
+            "from": 1791000030,
+            "offset": 70
+          },
+          {
+            "from": 1791000040,
+            "offset": 0
+          }
+        ],
+        "housekeeping": [
+          1791000035
+        ],
+        "quota": [
+          [
+            1791000040,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "r3": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "REPLAY_DETECTED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": true
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "EXPIRED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000002,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "pre-nonce-refusal-then-duplicate",
+      "description": "The only transmission is refused UNKNOWN_KEY (the operator has not yet added the key), before the nonce is recorded. The operator adds the key, and a duplicate copy arrives and binds. A Web that treats a protocol-class refusal as final concludes failed.",
+      "assumptions": "Key trusted from T0 + 10. No clock error, no restart.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001
+          },
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000020,
+            "answerToWeb": false
+          }
+        ],
+        "keyTrustedFrom": 1791000010,
+        "quota": [
+          [
+            0,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "UNKNOWN_KEY"
+          },
+          "failedAt": 1791000001,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "UNKNOWN_KEY"
+          },
+          "failedAt": 1791000001,
+          "unsafe": true
+        },
+        "r3": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "UNKNOWN_KEY"
+          },
+          "failedAt": 1791000001,
+          "unsafe": true
+        },
+        "r3-without-journal": {
+          "answers": [
+            "UNKNOWN_KEY",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "unjournaled-transmission",
+      "description": "The review's RC6 case. The Worker sends u and dies before journaling it. u waits for the lock. Web's journal holds only t, which is refused on the merits, so a Web without RC6 concludes failed. u then binds.",
+      "assumptions": "No clock error. u was sent without a journal record (impossible under RC6).",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060,
+            "journaled": false
+          },
+          {
+            "issuedAt": 1791000020,
+            "expiresAt": 1791000080
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001,
+            "lockAt": 1791000050,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000021,
+            "lockAt": 1791000021
+          }
+        ],
+        "quota": [
+          [
+            1791000040,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000022,
+          "unsafe": true
+        },
+        "reviewProposal": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "OPERATION:completed",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000022,
+          "unsafe": true
+        }
+      }
+    },
+    {
+      "id": "crash-after-record-restart-resend",
+      "description": "u records the operation, then fails with STORAGE_UNAVAILABLE, and the harness restarts. A resend under the same key resumes and completes it. Web resolves it, and never fails it.",
+      "assumptions": "Quota exhausted after T0 + 2. Restart at T0 + 5.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000030,
+            "expiresAt": 1791000090
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000001,
+            "crashAfterRecord": true
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000031
+          }
+        ],
+        "restarts": [
+          1791000005
+        ],
+        "quota": [
+          [
+            1791000000,
+            1791000002
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "reviewProposal": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "STORAGE_UNAVAILABLE",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "maximum-skew-no-step",
+      "description": "The harness is 30 s behind (the r2 limit) and its clock never steps. u reaches the lock after its deadline and is refused by the wall clock and the fence. R3 is safe in every rule set.",
+      "assumptions": "Clock offset -30 s throughout.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000120,
+            "expiresAt": 1791000180
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000005,
+            "lockAt": 1791000123,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000120,
+            "lockAt": 1791000120
+          }
+        ],
+        "harnessClock": [
+          {
+            "from": 0,
+            "offset": -30
+          }
+        ],
+        "quota": [
+          [
+            1791000121,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "reviewProposal": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "EXPIRED",
+            "QUOTA_EXCEEDED"
+          ],
+          "operation": null,
+          "web": {
+            "status": "failed",
+            "code": "QUOTA_EXCEEDED"
+          },
+          "failedAt": 1791000121,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "completion-after-expiry",
+      "description": "u starts before its deadline and holds the lock for 300 s. A later transmission waits for it and returns the operation. Expiry never proves that a started create did not complete.",
+      "assumptions": "No clock error. A slow commit.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000380,
+            "expiresAt": 1791000440
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000005,
+            "lockAt": 1791000080,
+            "holdFor": 300,
+            "answerToWeb": false
+          },
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000381,
+            "lockAt": 1791000381
+          }
+        ],
+        "quota": [
+          [
+            0,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "reviewProposal": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "OPERATION:completed",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "resolved",
+            "operationId": "00000000000000000000000000000000",
+            "state": "completed"
+          },
+          "failedAt": null,
+          "unsafe": false
+        }
+      }
+    },
+    {
+      "id": "overlapping-windows-out-of-order",
+      "description": "Two transmissions with overlapping windows arrive out of order. The later one is refused on the merits before the earlier one binds. Web stays unresolved, because the refusal is inside the earlier one's horizon.",
+      "assumptions": "No clock error. Quota frees at T0 + 50.",
+      "scenario": {
+        "transmissions": [
+          {
+            "issuedAt": 1791000000,
+            "expiresAt": 1791000060
+          },
+          {
+            "issuedAt": 1791000030,
+            "expiresAt": 1791000090
+          }
+        ],
+        "deliveries": [
+          {
+            "transmission": 1,
+            "arrivesAt": 1791000031,
+            "lockAt": 1791000031
+          },
+          {
+            "transmission": 0,
+            "arrivesAt": 1791000040,
+            "lockAt": 1791000055,
+            "answerToWeb": false
+          }
+        ],
+        "quota": [
+          [
+            1791000050,
+            9007199254740991
+          ]
+        ]
+      },
+      "results": {
+        "r2": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "reviewProposal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-wall-clock-deadline": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-fence": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-fence-durable-only-after-unlock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-durable-nonces": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-nonces-discarded-by-clock": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-protocol-refusals-final": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        },
+        "r3-without-journal": {
+          "answers": [
+            "QUOTA_EXCEEDED",
+            "OPERATION:completed"
+          ],
+          "operation": {
+            "state": "completed",
+            "recordedBy": 0
+          },
+          "web": {
+            "status": "unresolved"
+          },
+          "failedAt": null,
+          "unsafe": false
+        }
+      }
+    }
+  ]
+}

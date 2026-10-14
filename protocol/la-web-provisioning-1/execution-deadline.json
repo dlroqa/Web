@@ -1,6 +1,6 @@
 {
   "protocol": "LA-WEB-PROVISIONING/1",
-  "fixtureSet": "la-web-provisioning-1/r2",
+  "fixtureSet": "la-web-provisioning-1/r3",
   "kind": "execution-deadline",
   "description": "§10 step 14 for profile.create: after acquiring the ledger lock and before the idempotency lookup, the harness refuses EXPIRED when now ≥ expiresAt + 30. `deadlineCases` are single checks; `races` model one harness serving one job (calls serialized by the ledger lock) with and without step 14. `unsafe` means Web concluded failed while an operation exists.",
   "executionDeadlineSeconds": "expiresAt + MAX_CLOCK_SKEW_SECONDS, harness clock read after acquiring the ledger lock",
@@ -10,6 +10,7 @@
       "description": "Lock acquired immediately.",
       "admittedAt": 1791000001,
       "lockAcquiredAt": 1791000001,
+      "fence": 0,
       "command": "valid-create-basic",
       "executionDeadline": 1791000090,
       "expect": "proceed"
@@ -19,6 +20,7 @@
       "description": "Admitted in time; lock acquired at expiresAt + 29.",
       "admittedAt": 1791000010,
       "lockAcquiredAt": 1791000089,
+      "fence": 0,
       "command": "valid-create-basic",
       "executionDeadline": 1791000090,
       "expect": "proceed"
@@ -28,6 +30,7 @@
       "description": "Admitted in time; lock acquired exactly at expiresAt + 30.",
       "admittedAt": 1791000010,
       "lockAcquiredAt": 1791000090,
+      "fence": 0,
       "command": "valid-create-basic",
       "executionDeadline": 1791000090,
       "expect": "EXPIRED"
@@ -37,6 +40,7 @@
       "description": "Admission passes at expiresAt + 29; the lock is acquired two seconds later.",
       "admittedAt": 1791000089,
       "lockAcquiredAt": 1791000091,
+      "fence": 0,
       "command": "valid-create-basic",
       "executionDeadline": 1791000090,
       "expect": "EXPIRED"
@@ -46,6 +50,37 @@
       "description": "Admitted at once, then waited ten minutes for the lock.",
       "admittedAt": 1791000001,
       "lockAcquiredAt": 1791000600,
+      "fence": 0,
+      "command": "valid-create-basic",
+      "executionDeadline": 1791000090,
+      "expect": "EXPIRED"
+    },
+    {
+      "id": "fence-equals-deadline",
+      "description": "RC5: clock still before the deadline, but fence = expiresAt + 30 (a later create was admitted).",
+      "admittedAt": 1791000010,
+      "lockAcquiredAt": 1791000020,
+      "fence": 1791000090,
+      "command": "valid-create-basic",
+      "executionDeadline": 1791000090,
+      "expect": "EXPIRED"
+    },
+    {
+      "id": "fence-one-below-deadline",
+      "description": "RC5: fence = expiresAt + 29: the fence does not refuse.",
+      "admittedAt": 1791000010,
+      "lockAcquiredAt": 1791000020,
+      "fence": 1791000089,
+      "command": "valid-create-basic",
+      "executionDeadline": 1791000090,
+      "expect": "proceed"
+    },
+    {
+      "id": "clock-rolled-back-fence-refuses",
+      "description": "RC5: the clock reads T0 + 20 after a rollback, but the fence was raised to T0 + 150 by a create issued at T0 + 180.",
+      "admittedAt": 1791000010,
+      "lockAcquiredAt": 1791000020,
+      "fence": 1791000150,
       "command": "valid-create-basic",
       "executionDeadline": 1791000090,
       "expect": "EXPIRED"
