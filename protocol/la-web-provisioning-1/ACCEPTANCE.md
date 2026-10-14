@@ -22,16 +22,18 @@ the same revision, digest and candidate commit. Until then it is a
 | Field | Value |
 |---|---|
 | Revision | `la-web-provisioning-1/r4` |
-| Compatibility digest | recorded in the metadata commit that follows the candidate commit |
-| Candidate commit (Web) | recorded in the metadata commit that follows it |
+| Compatibility digest | `454066f8fb75e886119c401e4a45ec15ebf2b83115165b2e1f85180abfd29a43` |
+| Candidate commit (Web) | `f70789ec69c6d747ba5b7c84fe1b3f8db0cba727` (parent `227447b`, the r3 metadata commit) |
+| Fixture digest | `bfd171db27c03321227bec1a0e40325bad295b2a228cf02294b3a1e3a87d6e4b` |
+| Specification SHA-256 | `5f65a623aa467ec940d2942583a821b6dd23bf7b9221ccaa8e3e72fc4687b36a` |
 | Web branch | `l0/la-web-provisioning-r4` (local; the Web repository has no remote) |
-| Portable delivery | recorded in the metadata commit (`git bundle` path; SHA-256 in its sidecar) |
+| Portable delivery | `git bundle` of branch `l0/la-web-provisioning-r4` with full ancestry: `/home/agent/Repositories/Web-L0-review/la-web-provisioning-1-r4.bundle`. Its SHA-256 is in the sidecar `.sha256` next to it, not here (the bundle contains this file) |
 
 ## Acceptance
 
 | Side | Revision | Compatibility digest | Candidate commit | Reviewer | Date | Verdict |
 |---|---|---|---|---|---|---|
-| Web (`lightagent-control`) | r4 | | | | | candidate, not accepted |
+| Web (`lightagent-control`) | r4 | `454066f8fb75e886119c401e4a45ec15ebf2b83115165b2e1f85180abfd29a43` | `f70789ec69c6d747ba5b7c84fe1b3f8db0cba727` | | 2026-10-14 | proposed candidate; awaiting Lightagent |
 | Lightagent | r4 | | | | | not yet reviewed |
 
 ## History
