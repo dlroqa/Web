@@ -19,7 +19,8 @@
  */
 import { createAuditEvent, type AuditAction, type AuditEvent, type AuditEventInput } from "../worker/audit/audit";
 import { passkeyAuditFields, passkeyFingerprint } from "../worker/auth/passkey-audit";
-import { AdminRepository } from "../worker/db/admin";
+import { AdminRepository, type HarnessSummary } from "../worker/db/admin";
+import { ProvisioningJournalRepository } from "../worker/db/provisioning-journal";
 import { idSchema } from "../worker/db/common";
 import { USER_TRANSITIONS, UserRepository, type UserProfile, type UserStatus } from "../worker/db/users";
 import { VerificationRepository } from "../worker/db/verifications";
@@ -50,6 +51,9 @@ export class OperatorError extends Error {
 }
 
 const UserId = idSchema("usr");
+const HarnessId = idSchema("hns");
+/** Why a harness id is retired (§10.6). */
+export const RETIREMENT_REASONS = ["LEDGER_CONTINUITY_FAILED", "LEDGER_LOST", "DECOMMISSIONED"] as const;
 const OperationId = idSchema("op");
 const PasskeyId = /^[A-Za-z0-9_-]{8,64}$/;
 const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
@@ -75,6 +79,11 @@ function validateOperationId(operationId: unknown): string {
   return operationId;
 }
 
+function validateHarnessId(harnessId: unknown, flag = "--harness"): string {
+  if (typeof harnessId !== "string" || !HarnessId.safeParse(harnessId).success) throw new OperatorError("INVALID_INPUT", `${flag} must be a harness id (hns_…)`);
+  return harnessId;
+}
+
 export interface OperationInput {
   userId: string;
   reason: string;
@@ -88,6 +97,8 @@ export interface StatusChangeResult {
   userId: string;
   from: UserStatus;
   to: UserStatus;
+  /** Suspend/disable only: profiles whose Web access was withdrawn (harness revocation follows, see OPERATIONS.md). */
+  profilesRevoked?: number;
 }
 
 export interface SanitizedUser {
@@ -115,6 +126,7 @@ export class OperatorService {
   private readonly users: UserRepository;
   private readonly admin: AdminRepository;
   private readonly verifications: VerificationRepository;
+  private readonly journal: ProvisioningJournalRepository;
   private readonly now: () => Date;
 
   constructor(db: D1Database, options: { now?: () => Date } = {}) {
@@ -122,6 +134,7 @@ export class OperatorService {
     this.users = new UserRepository(db, { now: () => this.now().getTime() });
     this.admin = new AdminRepository(db);
     this.verifications = new VerificationRepository(db);
+    this.journal = new ProvisioningJournalRepository(db, { now: () => this.now().getTime() });
   }
 
   private event(operator: OperatorActor, input: Omit<AuditEventInput, "actor">): AuditEvent {
@@ -169,12 +182,27 @@ export class OperatorService {
       result: "success",
       metadata: { reason, from, to: spec.to, channel: operator.channel },
     });
-    const changed = await this.admin.transitionWithAudit(event, { userId, from, to: spec.to, updatedAt: Math.max(this.now().getTime(), user.createdAt) });
+    // Suspend and disable also make every profile's desired state absent (R6), in the same transaction.
+    const profilesEvent =
+      spec.to === "suspended" || spec.to === "disabled"
+        ? this.event(operator, {
+            action: "admin.user.profiles.revoke",
+            target: { type: "user", id: userId },
+            requestId: operationId,
+            result: "success",
+            metadata: { reason, cause: operation, channel: operator.channel },
+          })
+        : undefined;
+    const { changed, profilesRevoked } = await this.admin.transitionWithAudit(
+      event,
+      { userId, from, to: spec.to, updatedAt: Math.max(this.now().getTime(), user.createdAt) },
+      profilesEvent,
+    );
     if (!changed) {
       // The status changed between the read and the transaction; neither write happened.
       throw new OperatorError("CONFLICT", "the account changed concurrently; nothing was modified, retry");
     }
-    return { operationId, auditEventId: event.id, userId, from, to: spec.to };
+    return { operationId, auditEventId: event.id, userId, from, to: spec.to, ...(profilesEvent ? { profilesRevoked } : {}) };
   }
 
   /** Delete every session of one user (incident response). Audited even when there were none. */
@@ -260,6 +288,117 @@ export class OperatorService {
     if (!user) throw new OperatorError("NOT_FOUND", `no application user ${userId}`);
     const passkeys = await this.admin.listPasskeys(user.authUserId);
     return Promise.all(passkeys.map(async (p) => ({ id: p.id, name: p.name, fingerprint: await passkeyFingerprint(p.credentialID), createdAt: p.createdAt ?? null })));
+  }
+
+  // -------------------------------------------------------------------------
+  // Provisioning (W1): harness retirement, replacement, circuit breaker, and
+  // visibility. Nothing here sends anything to a harness.
+  // -------------------------------------------------------------------------
+
+  private async requireHarness(operator: OperatorActor, action: AuditAction, harnessId: string, operationId: string, reason: string): Promise<HarnessSummary> {
+    const harness = await this.admin.harnessSummary(harnessId);
+    if (harness) return harness;
+    await this.recordDenial(operator, { action, target: { type: "harness", id: harnessId }, requestId: operationId, reason: "NOT_FOUND", metadata: { reason, channel: operator.channel } });
+    throw new OperatorError("NOT_FOUND", `no harness ${harnessId}`);
+  }
+
+  /**
+   * Retire a harness id for good (§10.6): it is disabled, can never serve
+   * again, and its id is never reused. Unresolved operations on it stay
+   * unresolved and need operator decisions; nothing is moved or replayed.
+   */
+  async retireHarness(actor: Actor, input: { harnessId: string; reasonCode: string; reason: string; confirm: boolean; operationId?: string }): Promise<{ operationId: string; auditEventId: string; harnessId: string; unresolvedJobs: number }> {
+    const operator = requireOperator(actor);
+    const harnessId = validateHarnessId(input.harnessId);
+    const reason = validateReason(input.reason);
+    const operationId = validateOperationId(input.operationId);
+    if (!(RETIREMENT_REASONS as readonly string[]).includes(input.reasonCode)) throw new OperatorError("INVALID_INPUT", `--code must be one of ${RETIREMENT_REASONS.join(", ")}`);
+    if (input.confirm !== true) throw new OperatorError("CONFIRMATION_REQUIRED", "retiring a harness id is irreversible and requires --yes");
+    const harness = await this.requireHarness(operator, "admin.harness.retire", harnessId, operationId, reason);
+    if (harness.retired_reason !== null) {
+      await this.recordDenial(operator, { action: "admin.harness.retire", target: { type: "harness", id: harnessId }, requestId: operationId, reason: "CONFLICT", metadata: { reason, channel: operator.channel } });
+      throw new OperatorError("CONFLICT", `${harnessId} is already retired`);
+    }
+    const event = this.event(operator, {
+      action: "admin.harness.retire",
+      target: { type: "harness", id: harnessId },
+      requestId: operationId,
+      result: "success",
+      metadata: { reason, code: input.reasonCode, from: harness.status, unresolvedJobs: harness.unresolved_jobs, channel: operator.channel },
+    });
+    await this.admin.retireHarnessWithAudit(event, { harnessId, reasonCode: input.reasonCode, operatorId: operator.operatorId, operationId, at: this.now().getTime() });
+    return { operationId, auditEventId: event.id, harnessId, unresolvedJobs: harness.unresolved_jobs };
+  }
+
+  /**
+   * Approve a NEW harness id as the replacement of a retired one, after the
+   * per-profile migration or recovery decisions are documented (OPERATIONS.md).
+   * Until then a harness at the retired one's endpoint cannot be activated.
+   */
+  async approveHarnessReplacement(actor: Actor, input: { retiredHarnessId: string; replacementHarnessId: string; reason: string; confirm: boolean; operationId?: string }): Promise<{ operationId: string; auditEventId: string; retiredHarnessId: string; replacementHarnessId: string }> {
+    const operator = requireOperator(actor);
+    const retiredHarnessId = validateHarnessId(input.retiredHarnessId, "--retired");
+    const replacementHarnessId = validateHarnessId(input.replacementHarnessId, "--replacement");
+    const reason = validateReason(input.reason);
+    const operationId = validateOperationId(input.operationId);
+    if (input.confirm !== true) throw new OperatorError("CONFIRMATION_REQUIRED", "approving a replacement harness requires --yes");
+    const retired = await this.requireHarness(operator, "admin.harness.replacement.approve", retiredHarnessId, operationId, reason);
+    const replacement = await this.requireHarness(operator, "admin.harness.replacement.approve", replacementHarnessId, operationId, reason);
+    const problem =
+      retired.retired_reason === null ? `${retiredHarnessId} is not retired`
+      : replacement.retired_reason !== null ? `${replacementHarnessId} is retired`
+      : replacement.status !== "disabled" ? `${replacementHarnessId} must still be disabled`
+      : replacement.environment !== retired.environment ? "the harnesses belong to different environments"
+      : replacement.replaces !== null ? `${replacementHarnessId} already has an approval`
+      : null;
+    if (problem) {
+      await this.recordDenial(operator, { action: "admin.harness.replacement.approve", target: { type: "harness", id: replacementHarnessId }, requestId: operationId, reason: "CONFLICT", metadata: { reason, retired: retiredHarnessId, channel: operator.channel } });
+      throw new OperatorError("CONFLICT", problem);
+    }
+    const event = this.event(operator, {
+      action: "admin.harness.replacement.approve",
+      target: { type: "harness", id: replacementHarnessId },
+      requestId: operationId,
+      result: "success",
+      metadata: { reason, retired: retiredHarnessId, retiredUnresolvedJobs: retired.unresolved_jobs, channel: operator.channel },
+    });
+    await this.admin.approveReplacementWithAudit(event, { replacementId: replacementHarnessId, retiredId: retiredHarnessId, operatorId: operator.operatorId, operationId, at: this.now().getTime() });
+    return { operationId, auditEventId: event.id, retiredHarnessId, replacementHarnessId };
+  }
+
+  /**
+   * Lift the circuit break the reconciler set after LEDGER_CONTINUITY_FAILED,
+   * once the harness operator has shown §10.6 continuity is restored for this
+   * same id. Jobs whose own journal recorded the refusal stay in attention (R3a).
+   */
+  async releaseHarnessHold(actor: Actor, input: { harnessId: string; reason: string; operationId?: string }): Promise<{ operationId: string; auditEventId: string; harnessId: string }> {
+    const operator = requireOperator(actor);
+    const harnessId = validateHarnessId(input.harnessId);
+    const reason = validateReason(input.reason);
+    const operationId = validateOperationId(input.operationId);
+    const harness = await this.requireHarness(operator, "admin.harness.hold.release", harnessId, operationId, reason);
+    const event = this.event(operator, {
+      action: "admin.harness.hold.release",
+      target: { type: "harness", id: harnessId },
+      requestId: operationId,
+      result: "success",
+      metadata: { reason, hold: harness.provisioning_hold, channel: operator.channel },
+    });
+    if (!(await this.admin.releaseHoldWithAudit(event, harnessId))) {
+      await this.recordDenial(operator, { action: "admin.harness.hold.release", target: { type: "harness", id: harnessId }, requestId: operationId, reason: "CONFLICT", metadata: { reason, channel: operator.channel } });
+      throw new OperatorError("CONFLICT", `${harnessId} has no provisioning hold, or is retired`);
+    }
+    return { operationId, auditEventId: event.id, harnessId };
+  }
+
+  /** Read-only: provisioning jobs that need an operator (ids, states and codes only). */
+  async provisioningAttention(actor: Actor, input: { harnessId?: string; limit?: number } = {}): Promise<{ harness: HarnessSummary | null; jobs: Array<Record<string, unknown>> }> {
+    requireOperator(actor);
+    const harnessId = input.harnessId === undefined ? null : validateHarnessId(input.harnessId);
+    return {
+      harness: harnessId ? await this.admin.harnessSummary(harnessId) : null,
+      jobs: await this.journal.attention({ harnessId, limit: input.limit ?? 50 }),
+    };
   }
 
   /** Delete up to `limit` expired verification rows (maintenance; operator or system). */

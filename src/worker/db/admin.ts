@@ -18,6 +18,42 @@ const INSERT_AUDIT_IF_USER_STATUS = `INSERT INTO audit_events
 
 const UPDATE_USER_STATUS = `UPDATE user_profiles SET status = ?1, updated_at = ?2 WHERE id = ?3 AND status = ?4 RETURNING id`;
 
+// R6 (PROVISIONING_PROTOCOL §13.5): suspending or disabling an account makes
+// the desired state of every profile "absent" in the same transaction. A
+// revoked profile is terminal, so reactivation (or a create that completes
+// late) can never make it usable again. This withdraws Web access only;
+// harness bindings are revoked by the reconciler's revoke jobs, and a profile
+// counts as unbound on the harness only once its revoke job completed.
+const INSERT_AUDIT_IF_LIVE_PROFILES = `INSERT INTO audit_events
+  (id, timestamp, actor_type, actor_id, action, target_type, target_id, request_id, result, reason, security_metadata_json, details_json)
+  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+  WHERE EXISTS (SELECT 1 FROM agent_profiles WHERE user_id = ?13 AND status <> 'revoked')
+    AND EXISTS (SELECT 1 FROM user_profiles WHERE id = ?13 AND status IN ('suspended', 'disabled'))`;
+const REVOKE_OWNER_PROFILES = `UPDATE agent_profiles
+  SET status = 'revoked', revocation_version = revocation_version + 1, updated_at = MAX(updated_at, ?2)
+  WHERE user_id = ?1 AND status <> 'revoked'
+    AND EXISTS (SELECT 1 FROM user_profiles WHERE id = ?1 AND status IN ('suspended', 'disabled'))
+  RETURNING id`;
+
+const SELECT_HARNESS = `SELECT h.id, h.environment, h.status, h.provisioning_hold,
+       (SELECT reason_code FROM harness_retirements r WHERE r.harness_id = h.id) AS retired_reason,
+       (SELECT retired_harness_id FROM harness_replacements x WHERE x.replacement_harness_id = h.id) AS replaces,
+       (SELECT COUNT(*) FROM provisioning_jobs j WHERE j.harness_id = h.id AND j.status IN ('pending', 'sending', 'accepted')) AS unresolved_jobs,
+       (SELECT COUNT(*) FROM provisioning_jobs j WHERE j.harness_id = h.id AND j.needs_attention = 1) AS attention_jobs
+  FROM harnesses h WHERE h.id = ?1`;
+const DISABLE_HARNESS = `UPDATE harnesses SET status = 'disabled', updated_at = MAX(updated_at, ?2) WHERE id = ?1 RETURNING id`;
+const INSERT_RETIREMENT = `INSERT INTO harness_retirements (harness_id, reason_code, retired_by, operation_id, retired_at) VALUES (?1, ?2, ?3, ?4, ?5)`;
+const INSERT_REPLACEMENT = `INSERT INTO harness_replacements (replacement_harness_id, retired_harness_id, approved_by, operation_id, approved_at)
+  VALUES (?1, ?2, ?3, ?4, ?5)`;
+const INSERT_AUDIT_IF_HOLD = `INSERT INTO audit_events
+  (id, timestamp, actor_type, actor_id, action, target_type, target_id, request_id, result, reason, security_metadata_json, details_json)
+  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+  WHERE EXISTS (SELECT 1 FROM harnesses WHERE id = ?13 AND provisioning_hold IS NOT NULL)
+    AND NOT EXISTS (SELECT 1 FROM harness_retirements WHERE harness_id = ?13)`;
+const RELEASE_HOLD = `UPDATE harnesses SET provisioning_hold = NULL, provisioning_hold_at = NULL
+  WHERE id = ?1 AND provisioning_hold IS NOT NULL AND NOT EXISTS (SELECT 1 FROM harness_retirements WHERE harness_id = ?1)
+  RETURNING id`;
+
 const INSERT_AUDIT = `INSERT INTO audit_events
   (id, timestamp, actor_type, actor_id, action, target_type, target_id, request_id, result, reason, security_metadata_json, details_json)
   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`;
@@ -47,18 +83,76 @@ export interface StoredPasskey {
   createdAt?: string | null;
 }
 
+export interface HarnessSummary {
+  id: string;
+  environment: string;
+  status: string;
+  provisioning_hold: string | null;
+  retired_reason: string | null;
+  replaces: string | null;
+  unresolved_jobs: number;
+  attention_jobs: number;
+}
+
 export class AdminRepository {
   constructor(private readonly db: D1Database) {}
 
-  /** Change status `from` → `to` and record `event`, atomically. False if the status was no longer `from`. */
-  async transitionWithAudit(event: AuditEvent, input: { userId: string; from: string; to: string; updatedAt: number }): Promise<boolean> {
-    const [, update] = await guard(() =>
+  /**
+   * Change status `from` → `to` and record `event`, atomically. False if the
+   * status was no longer `from`. When `profilesEvent` is given (suspend,
+   * disable), every non-revoked profile of the user is revoked in the same
+   * transaction and that event records it (only if there were any).
+   */
+  async transitionWithAudit(
+    event: AuditEvent,
+    input: { userId: string; from: string; to: string; updatedAt: number },
+    profilesEvent?: AuditEvent,
+  ): Promise<{ changed: boolean; profilesRevoked: number }> {
+    const statements = [
+      this.db.prepare(INSERT_AUDIT_IF_USER_STATUS).bind(...auditRowValues(event), input.userId, input.from),
+      this.db.prepare(UPDATE_USER_STATUS).bind(input.to, input.updatedAt, input.userId, input.from),
+    ];
+    if (profilesEvent) {
+      statements.push(
+        this.db.prepare(INSERT_AUDIT_IF_LIVE_PROFILES).bind(...auditRowValues(profilesEvent), input.userId),
+        this.db.prepare(REVOKE_OWNER_PROFILES).bind(input.userId, input.updatedAt),
+      );
+    }
+    const results = await guard(() => this.db.batch(statements));
+    return { changed: results[1]?.results.length === 1, profilesRevoked: results[3]?.results.length ?? 0 };
+  }
+
+  async harnessSummary(harnessId: string): Promise<HarnessSummary | null> {
+    return guard(() => this.db.prepare(SELECT_HARNESS).bind(harnessId).first<HarnessSummary>());
+  }
+
+  /** Disable and retire a harness id for good, with `event`, atomically (§10.6). */
+  async retireHarnessWithAudit(event: AuditEvent, input: { harnessId: string; reasonCode: string; operatorId: string; operationId: string; at: number }): Promise<void> {
+    await guard(() =>
       this.db.batch([
-        this.db.prepare(INSERT_AUDIT_IF_USER_STATUS).bind(...auditRowValues(event), input.userId, input.from),
-        this.db.prepare(UPDATE_USER_STATUS).bind(input.to, input.updatedAt, input.userId, input.from),
+        this.db.prepare(INSERT_AUDIT).bind(...auditRowValues(event)),
+        this.db.prepare(DISABLE_HARNESS).bind(input.harnessId, input.at),
+        this.db.prepare(INSERT_RETIREMENT).bind(input.harnessId, input.reasonCode, input.operatorId, input.operationId, input.at),
       ]),
     );
-    return update?.results.length === 1;
+  }
+
+  /** Record that `replacementId` (a new, disabled harness) may replace the retired `retiredId`. */
+  async approveReplacementWithAudit(event: AuditEvent, input: { replacementId: string; retiredId: string; operatorId: string; operationId: string; at: number }): Promise<void> {
+    await guard(() =>
+      this.db.batch([
+        this.db.prepare(INSERT_AUDIT).bind(...auditRowValues(event)),
+        this.db.prepare(INSERT_REPLACEMENT).bind(input.replacementId, input.retiredId, input.operatorId, input.operationId, input.at),
+      ]),
+    );
+  }
+
+  /** Lift a LEDGER_CONTINUITY_FAILED circuit break. False if there was none (or the harness is retired). */
+  async releaseHoldWithAudit(event: AuditEvent, harnessId: string): Promise<boolean> {
+    const [, released] = await guard(() =>
+      this.db.batch([this.db.prepare(INSERT_AUDIT_IF_HOLD).bind(...auditRowValues(event), harnessId), this.db.prepare(RELEASE_HOLD).bind(harnessId)]),
+    );
+    return released?.results.length === 1;
   }
 
   /** Record one audit event (used for refusals). Throws if it cannot be stored. */

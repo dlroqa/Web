@@ -35,7 +35,7 @@ Rules:
 - Schema changes are **only** made through migrations: no dashboard edits and
   no ad-hoc `d1 execute` DDL as the normal workflow.
 - An applied migration is never edited. Fix forward with a new file.
-- Files are applied in filename order (`0001_…`, `0002_…`) and recorded in
+- Files are applied in filename order (`0001_…`, `0002_…`, `0003_…`) and recorded in
   `d1_migrations`; re-applying is a no-op.
 - Tests apply the real migration files to a fresh D1 (`tests/helpers/apply-migrations.ts`).
 - Applied files are hash-locked (`tests/static/migrations.test.ts`).
@@ -118,13 +118,38 @@ credentials are stored. A test asserts no such column exists.
 | `idempotency_key` | TEXT **UNIQUE** | 16–128 chars `[A-Za-z0-9_-]` |
 | `request_hash` | TEXT | Lowercase hex SHA-256 of the canonical command payload (`payloadHash`, PROVISIONING_PROTOCOL §9.1) |
 | `status` | TEXT | see state machine |
-| `attempt_count` | INTEGER 0–10 | Incremented on every entry into `sending` |
+| `attempt_count` | INTEGER 0–10 | Legacy counter. The W1 journal increments it per transmission, saturating at 10; it gates nothing. The transmission count is the journal itself ([PROVISIONING_W1.md](PROVISIONING_W1.md) §7) |
 | `error_code` | TEXT NULL | Stable code `[A-Z0-9_]{1,64}`; required when `failed` |
 | `created_at`, `updated_at`, `completed_at` | INTEGER | `completed_at` is set iff the status is terminal (CHECK) |
 
 Indexes: unique partial `(agent_profile_id, operation) WHERE status IN
 ('pending','sending','accepted')` (one in-flight job per profile and
 operation), `(user_id, created_at)`, `(agent_profile_id, created_at)`.
+
+Migration 0003 adds `operation_id`, `principal_id`, `observed_state`
+(forward-only, trigger), `observed_owner_bound`, `observed_at`,
+`needs_attention` + `attention_code`, and `next_attempt_at`.
+
+### Provisioning journal (migration 0003)
+
+Full design, invariants and concurrency argument:
+[PROVISIONING_W1.md](PROVISIONING_W1.md).
+
+| Table | Rows | Mutability |
+|---|---|---|
+| `provisioning_commands` | the fixed logical command of a job (canonical payload, `payload_hash = request_hash`) | none: no update, no delete |
+| `provisioning_deliveries` | lease, `next_seq`, `auto_attempts`, `mode`, reconcile bookkeeping | counters move forward by one; no delete |
+| `provisioning_transmissions` | one row per transmission, journaled before it can be sent | none: append-only |
+| `provisioning_transmission_outcomes` | one `uncertain` mark and/or one `answered` record per transmission | insert-only; an answer is final |
+| `harness_retirements`, `harness_replacements` | operator records (§10.6) | append-only |
+
+`harnesses` gains `provisioning_hold` / `provisioning_hold_at` (the
+LEDGER_CONTINUITY_FAILED circuit breaker). A retired harness stays
+`disabled`, and its id can never be deleted or reused.
+
+Authoritative reconciliation reads use a D1 session started with
+`first-primary`, in one batch; decisions are applied with a compare-and-swap
+on the journal version they read.
 
 ### `provisioning_nonces`
 
@@ -198,6 +223,14 @@ provisioning_jobs
   accepted → completed | failed
   completed, failed, cancelled → (terminal)
 ```
+
+Migration 0003 adds `provisioning → revoked` to `agent_profiles`: the
+desired state can become absent while a create is unresolved (suspension,
+user revocation; PROVISIONING_PROTOCOL §13.5, §13.7). Two guards come with it:
+
+- a profile whose owner is `suspended` or `disabled` can never enter
+  `provisioning` or `active`;
+- a profile's `harness_id` never changes once set.
 
 Of two concurrent conflicting transitions, exactly one succeeds.
 

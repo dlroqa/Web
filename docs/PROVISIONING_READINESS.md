@@ -104,30 +104,45 @@ conformance crate). Design reference: Lightagent
 
 Owner: Web (`lightagent-control`). Design reference: protocol §13 and §16.1.
 
+**Status:** the W1 foundation is on local branch `w1/provisioning-journal`
+for review ([PROVISIONING_W1.md](PROVISIONING_W1.md)). Nothing was applied
+remotely, deployed or merged.
+
 ### Order of work
 
-- [ ] **Migration 0003 or later** (never edit 0001 or 0002): §13.10
+- [x] **Migration 0003 or later** (never edit 0001 or 0002): §13.10
       transmission journal with triggers and delivery lease; the job's fixed
       canonical payload; job columns `operation_id`, `principal_id`,
       `observed_state`, `observed_at`, `needs_attention`, `next_attempt_at`;
       `attempt_count` decoupled from reconciliation; the suspension path;
       harness retirement records. Written and tested locally only.
+      *W1: `migrations/0003_provisioning_journal.sql`; local D1 only.*
 - [ ] Restrict `PROVISIONING_OPERATIONS` and `HarnessCapabilitiesSchema` to
       the v1 set (`profile.create`, `profile.status`, `profile.revoke`).
-- [ ] Display-name check (§8.1) at profile creation and rename, or at least
-      before signing.
+      *W1: fixed commands and journal rows accept only the v1 set (CHECK);
+      the stored-JSON schemas are narrowed with the W2 sender.*
+- [x] Display-name check (§8.1) at profile creation and rename, or at least
+      before signing. *W1: enforced when a job's command is fixed, before
+      any signing; creation/rename still allow 1–80 units.*
 - [ ] Production codec under `src/worker/provisioning/`, ported from the
       reference and tested inside workerd against every fixture, including
       `responses.json` and `create-resolution.json`. Fixtures stay
       unreachable from `src/` (existing static test).
+      *W1: registry, JCS, payloadHash, display name, resolution, plan and
+      ownership ported and fixture-tested; parser, verifier, signer and
+      `classifyResponse` remain for W2.*
 - [ ] Transport through `fetchWithTimeout` (10 s, `redirect: "manual"`,
       8 KiB read limit); classification exactly as `classifyResponse`.
 - [ ] Primary-consistent, level-triggered reconciler (Cron Trigger and
       `scheduled` handler) for R3a and R4–R6, plus nonce purging.
+      *W1: the reconciler (`reconcileDue`, `first-primary` snapshot,
+      journal-version CAS) is implemented and tested; the Cron Trigger is W2.*
 - [ ] Observed `ownerBound` with its time, the §13.1 needs-attention flags,
-      and the §13.5 R6 confirmation step.
-- [ ] Write-before-send: no delivery path exists without the journal row
-      (RC6).
+      and the §13.5 R6 confirmation step. *W1: stored and flagged; the
+      confirmation status poll is planned but not sent until W2.*
+- [x] Write-before-send: no delivery path exists without the journal row
+      (RC6). *W1: `claim` journals in the lease batch; a sender gets only a
+      claim's result.*
 
 ### Security boundary
 

@@ -54,6 +54,10 @@ is required. **Production is refused** until production launch is approved.
 | `revoke-all-sessions --reason "…" --yes` | delete **every** session (incident) | `admin.sessions.revoke_all` |
 | `remove-passkey --user usr_… --passkey <id> --reason "…"` | delete one passkey of that user | `admin.passkey.remove` |
 | `purge-verifications [--limit N]` | delete up to N (≤ 500) expired verification rows | — (maintenance) |
+| `provisioning-attention [--harness hns_…] [--limit N]` | provisioning jobs that need an operator: ids, states, codes only | — |
+| `retire-harness --harness hns_… --code CODE --reason "…" --yes` | disable and **retire** a harness id for good (CODE: `LEDGER_CONTINUITY_FAILED`, `LEDGER_LOST`, `DECOMMISSIONED`) | `admin.harness.retire` |
+| `approve-harness-replacement --retired hns_… --replacement hns_… --reason "…" --yes` | allow a new, still-disabled harness to replace a retired one | `admin.harness.replacement.approve` |
+| `release-harness-hold --harness hns_… --reason "…"` | lift the LEDGER_CONTINUITY_FAILED circuit break | `admin.harness.hold.release` |
 
 Every change:
 
@@ -78,6 +82,65 @@ Suspending an account blocks it on the next request, whatever sessions it
 has (`requirePrincipal` checks status every time), and blocks new sign-ins.
 It does **not** delete sessions. Use `revoke-sessions` too if the sessions
 themselves may be compromised.
+
+**Agent profiles (migration 0003).** In the same transaction, `suspend` and
+`disable` move every non-revoked agent profile of the user to `revoked`, and
+record `admin.user.profiles.revoke`. The result reports `profilesRevoked`.
+
+- **This is permanent.** `reactivate` restores the account but **not** its
+  profiles, because harness revocation is irreversible
+  (PROVISIONING_PROTOCOL §13.5). The user creates new profiles.
+- **It withdraws Web access, not the harness binding.** The provisioning
+  reconciler later opens a revoke job for each completed create. A profile
+  counts as unbound on the harness only once that revoke job has completed.
+  A create whose outcome is still unknown is first resent to learn its
+  operation id. Nothing is sent to any harness yet: there is no transport.
+
+### Provisioning attention, harness retirement and replacement
+
+Run `provisioning-attention` to see what needs an operator.
+
+- **A paused job keeps its whole history and is never failed automatically.**
+  The codes are explained in
+  [PROVISIONING_W1.md](PROVISIONING_W1.md) §7.
+- **There is no "resume" command yet.** Those decisions depend on evidence
+  from the harness operator.
+
+**`LEDGER_CONTINUITY_FAILED`.** The first such answer puts a hold on the
+harness, and nothing more is sent to it. Then:
+
+1. Ask the harness operator for the §10.6 continuity check result.
+2. If the ledger is intact for **this same harness id**, run
+   `release-harness-hold`. The job that saw the refusal stays in attention,
+   because the refusal is never treated as evidence.
+3. If the provisioning history is lost, retire the id (next procedure).
+
+**Retiring a harness id.** Run `retire-harness … --code LEDGER_LOST --yes`.
+This is irreversible:
+
+- The id never serves again, and is never deleted or reused.
+- Its unresolved creates stay unresolved (`HARNESS_RETIRED`). They are never
+  failed, revoked, moved or resent.
+
+**Approving a replacement.** All of the following are required before
+`approve-harness-replacement`:
+
+1. The replacement is registered with a **new** id, and is still `disabled`.
+2. The harness operator confirms that the new id's ledger was initialized
+   explicitly for that id (§10.6), and that the new gateway is not the old
+   ledger under a new name.
+3. For every profile of the retired id listed by
+   `provisioning-attention --harness <retired>`, record the migration or
+   recovery decision in the incident record, by `agt_`/`prv_` id. Old creates
+   are **never** resent to the new id: its ledger does not know their keys,
+   so a resend would create a second profile and binding.
+4. A second person reviews the record.
+
+Then run `approve-harness-replacement --retired … --replacement … --yes`,
+and activate the harness. Activation of a harness at a retired harness's
+endpoint is refused by the database until the approval exists. The approval
+moves nothing: users on the retired id get new profiles on the replacement
+through the normal flow.
 
 ## Procedures
 

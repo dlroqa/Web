@@ -7,10 +7,16 @@ const EXPECTED_TABLES = [
   "account",
   "agent_profiles",
   "audit_events",
+  "harness_replacements",
+  "harness_retirements",
   "harnesses",
   "passkey",
+  "provisioning_commands",
+  "provisioning_deliveries",
   "provisioning_jobs",
   "provisioning_nonces",
+  "provisioning_transmission_outcomes",
+  "provisioning_transmissions",
   "session",
   "user",
   "user_profiles",
@@ -35,10 +41,10 @@ describe("migrations", () => {
 
   it("record the applied migration and are a no-op when re-applied", async () => {
     const before = await db().prepare(`SELECT name FROM d1_migrations ORDER BY id`).all<{ name: string }>();
-    expect(before.results.map((r) => r.name)).toEqual(["0001_initial.sql", "0002_better_auth.sql"]);
+    expect(before.results.map((r) => r.name)).toEqual(["0001_initial.sql", "0002_better_auth.sql", "0003_provisioning_journal.sql"]);
     await applyD1Migrations(env.DB, Reflect.get(env, "TEST_MIGRATIONS") as D1Migration[]);
     const after = await db().prepare(`SELECT COUNT(*) AS n FROM d1_migrations`).first<{ n: number }>();
-    expect(after?.n).toBe(2);
+    expect(after?.n).toBe(3);
     expect(await objects("table")).toEqual(EXPECTED_TABLES);
   });
 

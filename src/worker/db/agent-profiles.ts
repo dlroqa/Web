@@ -27,7 +27,8 @@ export type ProfileStatus = (typeof PROFILE_STATUSES)[number];
 /** Allowed status changes; mirrored by the agent_profiles_status_transition trigger. */
 export const PROFILE_TRANSITIONS: Readonly<Record<ProfileStatus, readonly ProfileStatus[]>> = {
   pending: ["provisioning", "revoked"],
-  provisioning: ["active", "failed"],
+  // → revoked: desired state became absent while a create is unresolved (migration 0003, §13.5).
+  provisioning: ["active", "failed", "revoked"],
   failed: ["provisioning", "revoked"],
   active: ["suspended", "revoked"],
   suspended: ["active", "revoked"],

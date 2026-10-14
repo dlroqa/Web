@@ -22,6 +22,13 @@ export const USAGE = `usage: npm run operator -- <command> --env staging [option
   remove-passkey   --user usr_… --passkey <id> --reason "…"
   purge-verifications [--limit N]                       delete expired OAuth state/passkey challenges
 
+  provisioning-attention [--harness hns_…] [--limit N]  provisioning jobs that need an operator
+  retire-harness   --harness hns_… --code CODE --reason "…" --yes
+                                                        retire a harness id for good (CODE: LEDGER_CONTINUITY_FAILED,
+                                                        LEDGER_LOST, DECOMMISSIONED)
+  approve-harness-replacement --retired hns_… --replacement hns_… --reason "…" --yes
+  release-harness-hold --harness hns_… --reason "…"     lift a LEDGER_CONTINUITY_FAILED circuit break
+
   The operator id comes from --operator opr_… or LIGHTAGENT_OPERATOR_ID.
   Every change is one transaction with an admin.* audit event.`;
 
@@ -30,7 +37,7 @@ export interface Output {
   err(text: string): void;
 }
 
-const VALUE_FLAGS = new Set(["user", "reason", "passkey", "operator", "env", "limit", "operation"]);
+const VALUE_FLAGS = new Set(["user", "reason", "passkey", "operator", "env", "limit", "operation", "harness", "code", "retired", "replacement"]);
 const BOOLEAN_FLAGS = new Set(["yes"]);
 
 export interface ParsedArgs {
@@ -84,6 +91,25 @@ export async function runOperatorCommand(args: ParsedArgs, db: D1Database, io: O
       print({ ok: true, result: await service.revokeAllSessions(actor, { reason: base.reason, confirm: switches.has("yes"), ...(base.operationId ? { operationId: base.operationId } : {}) }) });
     } else if (command === "remove-passkey") {
       print({ ok: true, result: await service.removePasskey(actor, { ...base, passkeyId: flags["passkey"] ?? "" }) });
+    } else if (command === "provisioning-attention") {
+      const limit = flags["limit"] === undefined ? undefined : Number(flags["limit"]);
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw new OperatorError("INVALID_INPUT", "--limit must be a positive integer");
+      print({ ok: true, result: await service.provisioningAttention(actor, { ...(flags["harness"] ? { harnessId: flags["harness"] } : {}), ...(limit === undefined ? {} : { limit }) }) });
+    } else if (command === "retire-harness") {
+      print({ ok: true, result: await service.retireHarness(actor, { harnessId: flags["harness"] ?? "", reasonCode: flags["code"] ?? "", reason: base.reason, confirm: switches.has("yes"), ...(base.operationId ? { operationId: base.operationId } : {}) }) });
+    } else if (command === "approve-harness-replacement") {
+      print({
+        ok: true,
+        result: await service.approveHarnessReplacement(actor, {
+          retiredHarnessId: flags["retired"] ?? "",
+          replacementHarnessId: flags["replacement"] ?? "",
+          reason: base.reason,
+          confirm: switches.has("yes"),
+          ...(base.operationId ? { operationId: base.operationId } : {}),
+        }),
+      });
+    } else if (command === "release-harness-hold") {
+      print({ ok: true, result: await service.releaseHarnessHold(actor, { harnessId: flags["harness"] ?? "", reason: base.reason, ...(base.operationId ? { operationId: base.operationId } : {}) }) });
     } else if (command === "purge-verifications") {
       const limit = flags["limit"] === undefined ? undefined : Number(flags["limit"]);
       if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw new OperatorError("INVALID_INPUT", "--limit must be a positive integer");

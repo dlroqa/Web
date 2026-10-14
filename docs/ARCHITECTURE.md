@@ -95,6 +95,7 @@ in the signed command, never to a caller-supplied profile.
 ```text
 src/client/   React SPA (no secrets; talks only to same-origin /api)
 src/worker/   Worker entry, api, security, db (repositories), audit, site
+src/worker/provisioning/  W1 provisioning coordination (D1 only; no transport, not routed)
 src/shared/   Schemas, types, and error codes shared by both sides
 migrations/   D1 migrations (the only way the schema changes)
 tests/        unit, integration, security, contracts
@@ -108,3 +109,8 @@ reaches agent profiles only through `forUser(userId)`, which scopes every
 query to the owner. Status machines, the monotonic `revocation_version`,
 immutable ownership, and append-only audit rows are enforced by both the
 repositories and database triggers. See [DATABASE.md](DATABASE.md).
+
+Provisioning coordination (W1) keeps a durable, append-only D1 journal of
+every transmission before it could be sent, and resolves jobs conservatively
+from a primary-consistent read of that journal. See
+[PROVISIONING_W1.md](PROVISIONING_W1.md). Nothing is sent to any harness yet.

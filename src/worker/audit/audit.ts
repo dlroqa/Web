@@ -45,6 +45,17 @@ export const AUDIT_ACTIONS = [
   "provision.replay.detected",
   "admin.harness.register",
   "admin.harness.disable",
+  // Provisioning coordination (W1: D1 bookkeeping only, nothing is sent).
+  "provision.job.open",
+  "provision.job.resolve",
+  "provision.job.attention",
+  "provision.job.cancel",
+  "provision.revoke.request",
+  "provision.harness.hold",
+  "admin.harness.retire",
+  "admin.harness.replacement.approve",
+  "admin.harness.hold.release",
+  "admin.user.profiles.revoke",
   // Operator actions (trusted CLI only; see src/operator and docs/OPERATIONS.md).
   "admin.user.approve",
   "admin.user.suspend",

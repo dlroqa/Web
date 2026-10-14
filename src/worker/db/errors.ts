@@ -60,6 +60,38 @@ export class ConstraintViolationError extends DbError {
   }
 }
 
+/**
+ * A provisioning-journal invariant enforced by a migration 0003 trigger. The
+ * reason is the trigger's message (a fixed word list, never SQL or values).
+ */
+export const PROVISIONING_GUARDS = [
+  "journal_append_only",
+  "journal_answer_final",
+  "journal_lease_required",
+  "payload_mismatch",
+  "harness_unavailable",
+  "outcome_inconsistent",
+  "command_mismatch",
+  "command_immutable",
+  "provisioning_not_allowed",
+  "delivery_bookkeeping",
+  "observed_state_regression",
+  "owner_not_active",
+  "harness_not_disabled",
+  "harness_retired",
+  "harness_record_append_only",
+  "replacement_invalid",
+  "replacement_not_approved",
+] as const;
+export type ProvisioningGuard = (typeof PROVISIONING_GUARDS)[number];
+
+export class ProvisioningGuardError extends DbError {
+  override readonly name = "ProvisioningGuardError";
+  constructor(readonly reason: ProvisioningGuard) {
+    super(`provisioning guard: ${reason}`);
+  }
+}
+
 export class UnexpectedDbError extends DbError {
   override readonly name = "UnexpectedDbError";
 }
@@ -76,6 +108,8 @@ export function mapD1Error(error: unknown): DbError {
   if (unique) return new UniqueConflictError(unique[1] ?? "unknown");
   if (message.includes("invalid_status_transition")) return new InvalidTransitionError("row", "unknown", "unknown");
   if (message.includes("immutable_column")) return new ConstraintViolationError("immutable");
+  const guardReason = PROVISIONING_GUARDS.find((reason) => new RegExp(`\\b${reason}\\b`).test(message));
+  if (guardReason) return new ProvisioningGuardError(guardReason);
   if (message.includes("audit_events_append_only")) return new ConstraintViolationError("append_only");
   if (message.includes("revocation_version_decrease")) return new ConstraintViolationError("revocation_decrease");
   if (message.includes("FOREIGN KEY constraint failed")) return new ConstraintViolationError("foreign_key");
@@ -99,7 +133,7 @@ export function toApiError(error: DbError): ApiError {
   if (error instanceof NotFoundError) return new ApiError("NOT_FOUND", { logReason });
   if (error instanceof IdempotencyConflictError) return new ApiError("IDEMPOTENCY_CONFLICT", { logReason });
   if (error instanceof NonceReplayError) return new ApiError("REPLAY_DETECTED", { logReason });
-  if (error instanceof InvalidTransitionError || error instanceof UniqueConflictError) {
+  if (error instanceof InvalidTransitionError || error instanceof UniqueConflictError || error instanceof ProvisioningGuardError) {
     return new ApiError("CONFLICT", { logReason });
   }
   return new ApiError("INTERNAL_ERROR", { logReason });

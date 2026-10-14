@@ -20,6 +20,8 @@ export default defineConfig(async () => {
               wrangler: { configPath: "./wrangler.jsonc" },
               miniflare: {
                 compatibilityDate: "2026-08-22",
+                // A second, empty local D1 for the migration-upgrade test (0001–0002 data, then 0003).
+                d1Databases: { LEGACY_DB: "w1-legacy-upgrade-test" },
                 bindings: {
                   TEST_MIGRATIONS: migrations,
                   // Test-only placeholders, not credentials. Provider endpoints
@@ -39,7 +41,7 @@ export default defineConfig(async () => {
             name: "workers",
             // Integration tests run full OAuth/passkey flows (RSA keys, D1).
             testTimeout: 20_000,
-            include: ["tests/{unit,security,db,integration,contracts,operator}/**/*.test.ts"],
+            include: ["tests/{unit,security,db,integration,contracts,operator,provisioning}/**/*.test.ts"],
             setupFiles: ["./tests/helpers/apply-migrations.ts"],
           },
         },

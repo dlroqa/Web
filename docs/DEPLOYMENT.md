@@ -310,3 +310,20 @@ as Phase 4:
 Final staging state: `usr_zabx…` active, `usr_bcv3…` pending, 0 sessions,
 0 passkeys, 0 verification rows, no provider tokens, 0 agent profiles,
 provisioning jobs, or harnesses; 43 audit rows, none with emails or tokens.
+
+### 2026-10-14: W1 provisioning journal (local validation only)
+
+Branch `w1/provisioning-journal` (from `l0/la-web-provisioning-r4`
+`174e388`). **Nothing was deployed and no remote migration was applied.**
+
+| Check | Result |
+|---|---|
+| `npm run check` | typecheck; 39 test files and 973 tests in the workers, static and client projects; build; 10 build-output tests: all pass |
+| Protocol | `npm run protocol:fixtures -- check` and `sha256sum -c MANIFEST.sha256` pass; digest unchanged (`454066f8…a43`) |
+| Migration 0003, Wrangler `--local` | applies to a fresh database (54 statements), and to a 0002 database holding data, preserving the rows |
+| Staging build | `CLOUDFLARE_ENV=staging`: Worker `lightagent-control-staging`, D1 `lightagent-control-staging`, compatibility date `2026-10-01`, same bindings as before, no cron triggers; no W1 code in the bundle |
+| `wrangler deploy --dry-run` | exits after listing bindings; no upload |
+
+Before staging, three separate approvals are needed: applying 0003 to
+staging, deploying, and the operator behaviour change (suspension revokes
+profiles). See [PROVISIONING_W1.md](PROVISIONING_W1.md) §11.

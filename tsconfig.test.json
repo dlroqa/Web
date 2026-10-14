@@ -16,6 +16,7 @@
     "tests/db",
     "tests/contracts",
     "tests/operator",
+    "tests/provisioning",
     "tests/helpers",
     "src/worker",
     "src/shared",
