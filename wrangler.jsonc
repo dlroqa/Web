@@ -49,6 +49,17 @@
     }
   ],
 
+  // Authoritative rate-limit counters (src/worker/security/rate-limit-do.ts),
+  // one SQLite-backed object per counter key. Neither field is inherited by
+  // named environments, so each environment repeats them; each environment
+  // is its own Worker, so its objects never share state with another's.
+  // A new class can only be created by `wrangler deploy` (not
+  // `wrangler versions upload`); see DEPLOYMENT.md before rolling out.
+  "durable_objects": {
+    "bindings": [{ "name": "AUTH_RATE_LIMITER", "class_name": "AuthRateLimiter" }]
+  },
+  "migrations": [{ "tag": "v1-auth-rate-limiter", "new_sqlite_classes": ["AuthRateLimiter"] }],
+
   // Cloudflare rate limiters, one per policy. namespace_id is account-scoped,
   // so each environment uses its own range to keep counters separate.
   "ratelimits": [
@@ -88,6 +99,10 @@
           "migrations_dir": "migrations"
         }
       ],
+      "durable_objects": {
+        "bindings": [{ "name": "AUTH_RATE_LIMITER", "class_name": "AuthRateLimiter" }]
+      },
+      "migrations": [{ "tag": "v1-auth-rate-limiter", "new_sqlite_classes": ["AuthRateLimiter"] }],
       "ratelimits": [
         { "name": "RL_LOGIN", "namespace_id": "2001", "simple": { "limit": 20, "period": 60 } },
         { "name": "RL_SIGNUP", "namespace_id": "2002", "simple": { "limit": 10, "period": 60 } },
@@ -124,6 +139,10 @@
           "migrations_dir": "migrations"
         }
       ],
+      "durable_objects": {
+        "bindings": [{ "name": "AUTH_RATE_LIMITER", "class_name": "AuthRateLimiter" }]
+      },
+      "migrations": [{ "tag": "v1-auth-rate-limiter", "new_sqlite_classes": ["AuthRateLimiter"] }],
       "ratelimits": [
         { "name": "RL_LOGIN", "namespace_id": "3001", "simple": { "limit": 20, "period": 60 } },
         { "name": "RL_SIGNUP", "namespace_id": "3002", "simple": { "limit": 10, "period": 60 } },

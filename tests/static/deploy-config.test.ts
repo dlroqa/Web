@@ -24,6 +24,20 @@ describe("wrangler.jsonc", () => {
     ]);
   });
 
+  describe.each([undefined, "staging", "production"])("authoritative rate limiter (%s)", (env) => {
+    const config = read(env);
+
+    it("binds AUTH_RATE_LIMITER to the SQLite-backed AuthRateLimiter class in this Worker", () => {
+      expect(config.durable_objects.bindings).toEqual([{ name: "AUTH_RATE_LIMITER", class_name: "AuthRateLimiter" }]);
+      expect(config.migrations).toEqual([{ tag: "v1-auth-rate-limiter", new_sqlite_classes: ["AuthRateLimiter"] }]);
+    });
+  });
+
+  it("gives every environment its own Worker, so no Durable Object state is shared", () => {
+    const names = [undefined, "staging", "production"].map((env) => read(env).name);
+    expect(names).toEqual(["lightagent-control", "lightagent-control-staging", "lightagent-control-production"]);
+  });
+
   it.each([undefined, "staging", "production"])("marks no D1 binding remote (%s)", (env) => {
     for (const database of read(env).d1_databases) expect(database.remote, database.binding).toBeFalsy();
   });

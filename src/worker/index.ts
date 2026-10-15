@@ -81,4 +81,7 @@ export function createWorker(options: WorkerOptions) {
   } satisfies ExportedHandler<Env>;
 }
 
+// Durable Object classes must be exported from the Worker's main module.
+export { AuthRateLimiter } from "./security/rate-limit-do";
+
 export default createWorker({ cspMode: import.meta.env.DEV ? "development" : "production" });
