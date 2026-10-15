@@ -49,7 +49,7 @@ GitHub Actions for Web.
 | Root directory | `/` |
 | Build variables | `CLOUDFLARE_ENV=staging`, `NODE_VERSION=22` |
 | Build command | `npm run ci:cloudflare` |
-| Deploy command | staging guard, then `npx wrangler deploy --env staging --dry-run` |
+| Deploy command | staging guard, then `npx wrangler versions upload --env staging --message "deploy/staging W1"` (upload only; never `wrangler deploy`) |
 
 `npm run ci:cloudflare` runs, failing at the first error:
 
@@ -69,16 +69,28 @@ GitHub Actions for Web.
    build keeps `preview_urls: false`.
 
 The deploy command's guard refuses unless `dist/lightagent_control/wrangler.json`
-names `lightagent-control-staging`, `ENVIRONMENT=staging` and the staging
-`DB` (`lightagent-control-staging`, `3cc0724d-fb83-4477-ac0f-5aee58606fdf`).
-Workers Builds sets the Worker name from the connected Worker
-(`WRANGLER_CI_OVERRIDE_NAME`), so the guard is what stops a non-staging build
-from reaching it. While the command ends in `--dry-run`, a build uploads
-nothing. Activation (a live deploy or `versions upload`) needs its own approval.
+names `lightagent-control-staging`, `ENVIRONMENT=staging`, `preview_urls: false`
+and the staging `DB` (`lightagent-control-staging`,
+`3cc0724d-fb83-4477-ac0f-5aee58606fdf`). Workers Builds sets the Worker name
+from the connected Worker (`WRANGLER_CI_OVERRIDE_NAME`), so the guard is what
+stops a non-staging build from reaching it. The dashboard field has a length
+limit (about 512 characters): keep the command compact.
 
-`preview_urls` is `false` for staging and production in `wrangler.jsonc`.
-Every deploy re-sends this setting, so it is set in configuration, not only
-in the dashboard.
+Every push to `deploy/staging` therefore **uploads an inactive version**. It
+never changes traffic. Activation is a separate, approved, manual step:
+
+```sh
+npx wrangler versions deploy <version-id>@100% --name lightagent-control-staging --message "<approval reference>" --yes
+```
+
+Roll back the same way, with the previous version id. A version deploy also
+syncs non-versioned settings (logpush, observability) from the local
+`dist/lightagent_control/wrangler.json`, so run it from a staging build of the
+same commit.
+
+`preview_urls` is `false` for staging and production in `wrangler.jsonc`, and
+off on the live staging Worker (per-version hostnames return 404). Every deploy
+re-sends this setting, so it is set in configuration, not only in the dashboard.
 
 ## Staging smoke test
 
@@ -371,3 +383,46 @@ Branch `w1/provisioning-journal` (from `l0/la-web-provisioning-r4`
 Before staging, three separate approvals are needed: applying 0003 to
 staging, deploying, and the operator behaviour change (suspension revokes
 profiles). See [PROVISIONING_W1.md](PROVISIONING_W1.md) §11.
+
+### 2026-10-15: W1 on staging via Cloudflare Workers Builds (Gates A–B.3)
+
+Each step had its own approval. Source: `deploy/staging` at `eb2dad8`
+(W1 `11aca88` + Gate A.2 hardening). Production untouched (no Worker, no
+migrations). No secret, cron trigger, signing key or harness was added.
+
+| Step | Result |
+|---|---|
+| A / A.2: builds `53620073`, `d42eed99` | dry run only; `ci:cloudflare`: frozen r4 verified (`454066f8…a43`), typecheck, 41 files / 984 tests, staging build, 11 build-output tests; guard passed |
+| B.1: migration 0003 | Time Travel bookmark `0000003b-00000000-00005105-14457601a18d55af4c0b484ad6d9da08` (02:14:53Z); export backup kept outside the repository (SHA-256 `63b04e6b…d5b6`, restore-tested); 0003 applied (54 statements); before/after row fingerprints identical; schema 18 tables, 38 triggers, 23 indexes; `foreign_key_check` empty, `quick_check` ok |
+| B.2: Preview URLs | turned off on the live Worker (`previews_enabled: false`); per-version hostnames 404; workers.dev kept |
+| B.2: upload, build `9181556d` | inactive version `91dc87aa-a156-45df-9296-81e2ad8a3106`; same test results; output byte-identical to the reviewed build; bindings identical to Phase 5 |
+| B.3: activation | deployment `f8fcc91f-2749-4699-925c-5782b5a72dd5` at 08:39:11Z: `91dc87aa` 100%, Phase 5 `fd978898` 0% (rollback target). Bookmark before: `0000003f-00000000-00005105-dc4234e5fe3b5f48eb1ff2e4376bb5b6` |
+
+Staging smoke test after activation:
+
+| Check | Result |
+|---|---|
+| Documents (`/`, `/login`, `/agents`, deep `/agents/<id>`, `/security`, `/dashboard`) | 200, `no-store`, header nonce = every body nonce, no placeholder, fresh per request; headless Chromium: rendered, 0 CSP violations, signed-out visitors land on `/login` |
+| API | `/health` ok; `POST /health` 405 + `Allow`; `/api*` JSON 404 even for HTML; `/api/agents` signed out → 401; foreign-origin and Origin-less writes → 403 |
+| Auth | `/api/config`: Google, GitHub, passkeys, staging Turnstile key; invalid Turnstile token refused; real Google sign-in by the operator: dashboard, Agents and Security load, no CSP errors (`auth.login.success` + `auth.logout` audited, 0 sessions left) |
+| D1 | fingerprints unchanged by activation; statuses 1 active / 1 pending; all provisioning, harness and agent-profile tables empty |
+| Worker | `fetch` handler only, cron `[]`, observability logs and traces on |
+
+Open findings (not regressions; separate follow-up):
+
+- **Login rate limiting did not trigger live.** 78 social sign-in attempts
+  from one IP in about two minutes (burst, then paced over 60 s) were all
+  allowed by `RL_LOGIN` (20 / 60 s) and refused by Turnstile. W1 changed no
+  rate-limit code or binding. Live rate limiting had never been verified on
+  staging. Cloudflare documents the binding as permissive and eventually
+  consistent. Turnstile still gates every sign-in. Investigate with the
+  Worker logs (`ratelimit.*`). SECURITY_MODEL.md's table (login 10, signup 5)
+  also differs from `wrangler.jsonc` (20, 10).
+- Browsers log `/favicon.ico` 404 (no favicon is shipped) and a
+  Permissions-Policy warning for `browsing-topics` (an opt-out the browser no
+  longer recognizes). Both cosmetic.
+
+Operator: from now on only the W1 operator (`eb2dad8` or later) may run
+against staging. `suspend`/`disable` revoke Web-side agent profiles, and
+`reactivate` does not restore them. Lightagent-side revocation is not
+implemented (W2).

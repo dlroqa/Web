@@ -16,7 +16,8 @@ durable, crash-recoverable **coordination only**:
 |---|---|
 | Base | `l0/la-web-provisioning-r4` at `174e3881b7655260790cf0e419e0a9baba25441d` (frozen r4 acceptance) |
 | Branch | `w1/provisioning-journal`, also built for staging from `deploy/staging` (private `github.com/dlroqa/Web`; see DEPLOYMENT.md, "Cloudflare Workers Builds") |
-| Migration | `migrations/0003_provisioning_journal.sql`, local D1 only. **Not applied to staging or production** |
+| Migration | `migrations/0003_provisioning_journal.sql`. **Applied to staging D1 on 2026-10-15** (Gate B.1); not applied to production |
+| Staging | W1 version `91dc87aa` active since 2026-10-15 (Gate B.3). It adds no provisioning behaviour: no route, signer, transport or Cron Trigger (DEPLOYMENT.md) |
 | Code | `src/worker/provisioning/` (pure protocol + lifecycle, coordinator), `src/worker/db/provisioning-journal.ts` (all journal SQL), operator additions |
 
 ## 1. What is implemented, what is a test double, what is deferred
