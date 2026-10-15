@@ -465,19 +465,92 @@ Fix: SQLite-backed Durable Object counters (`AuthRateLimiter`, binding
 declares the binding and migration for development, staging and
 production; nothing has been deployed. Staging still runs W1 `91dc87aa`.
 
-Rollout (each step needs its own approval):
+Hosted validation (no upload): Workers Builds build
+`7b9b69c0-3d49-4562-a31e-c52b911febff` on `deploy/staging` = `f6ab94b`, deploy
+command switched to the guard + `wrangler deploy --env staging --dry-run`:
+r4 verified, 44 files / 1037 tests, 11 build-output tests, dry run with
+`AUTH_RATE_LIMITER` listed. Live state unchanged (W1 `91dc87aa` 100%).
 
-1. Carrier commit (class, binding, migration only; limiter not wired):
-   from a clean checkout of that commit, `CLOUDFLARE_ENV=staging npm run
-   ci:cloudflare`, the staging guard, then `npx wrangler deploy --message
-   "<approval reference>"` (the staging build's redirected config targets
-   `lightagent-control-staging`). Verify: deployment shows the new version
-   at 100%, `wrangler versions view` lists `AUTH_RATE_LIMITER`, smoke test
-   as after B.3. Rollback after this point: only to the carrier or later.
-2. Push the implementation commit to `deploy/staging`; Builds uploads an
-   inactive version (the migration is no longer pending).
-3. Promote with `versions deploy <id>@100%`. Controlled check: 21 sign-in
-   starts from one IP with an invalid Turnstile token give 20 ×
-   `TURNSTILE_FAILED`, then `RATE_LIMITED` with `Retry-After`; a real Google
-   sign-in still works. Rollback: `versions deploy <carrier>@100%`.
+#### Carrier runbook (prepared; each step needs its own approval)
 
+The carrier is `0b9528e`: W1 plus the unused class, binding and migration.
+Its staging Worker bundle is the W1 bundle plus the appended class and one
+export name; every other module, the client assets and all generated
+configuration except `durable_objects`/`migrations` are identical, and no
+code references `AUTH_RATE_LIMITER`. The migration mechanism is the legacy
+`migrations` array (`new_sqlite_classes`): the declarative `exports` field
+would make every later `wrangler versions upload` fail and cannot be undone.
+
+Branch `deploy/staging-carrier` is at exactly `0b9528e`. Commit `91c9f65`
+(parent `0b9528e`) adds only `scripts/deploy-carrier.mjs`, its `.d.mts` and
+`tests/static/deploy-carrier.test.ts` (the same files are on this branch).
+The script is the deploy command; it refuses unless the source digest of
+every other tracked file is `0b9528e`'s (`8b211653…1e5a`), no tracked file
+is modified, the Builds branch is `deploy/staging-carrier`, the generated
+configuration is the staging Worker/D1 with Preview URLs off and exactly
+the `AUTH_RATE_LIMITER` binding and `v1-auth-rate-limiter` migration, the
+bundle exports the class without using it, and the live deployment is
+exactly `91dc87aa` at 100%. Without `--deploy` it only dry-runs.
+
+Builds settings (Settings → Builds, Production tab). The rule throughout:
+**the deploy command is changed before the branch, and is never mutating
+while the branch is `deploy/staging`.**
+
+| Phase | Production branch | Deploy command |
+|---|---|---|
+| now | `deploy/staging` | guard + `npx wrangler deploy --env staging --dry-run` |
+| C1 hosted carrier dry run | `deploy/staging-carrier` | `node scripts/deploy-carrier.mjs` |
+| C2 carrier deploy | `deploy/staging-carrier` | `node scripts/deploy-carrier.mjs --deploy` |
+| C3 restore | `deploy/staging` | guard + `npx wrangler deploy --env staging --dry-run` |
+| later: inactive upload | `deploy/staging` | guard + `npx wrangler versions upload --env staging --message "…"` |
+
+C1. Set the deploy command, save; then set the production branch, save.
+   (If the branch change starts a build of `0b9528e`, its deploy step fails:
+   the script is not in that commit. Nothing is deployed.) Push `91c9f65` to
+   `deploy/staging-carrier` (fast-forward): Builds runs `ci:cloudflare`
+   (43 files / 1016 tests locally) and the script's dry run. Check the log:
+   `carrier verified`, `AUTH_RATE_LIMITER`, `--dry-run: exiting now.`; and
+   the account: 10 versions, `91dc87aa` 100%.
+C2. Before: D1 Time Travel bookmark; `wrangler deployments status --env
+   staging` shows `91dc87aa` 100%. Set the deploy command to `… --deploy`,
+   save, then **Retry** the C1 build (same commit; retry uses the current
+   settings). The script re-checks everything, runs `wrangler deploy`, and
+   prints the new deployment. A second run refuses (W1 no longer at 100%).
+C3. Immediately: deploy command back to the dry-run guard, save; then the
+   production branch back to `deploy/staging`, save. Delete nothing.
+
+After C2: the carrier version is the only rollback target. Cloudflare
+blocks rollback to `91dc87aa`, `fd978898` and every earlier version
+(Durable Object lifecycle change).
+
+Carrier smoke test (C2 → C3, before anything else): `deployments status`
+(carrier 100%), `versions view` lists `AUTH_RATE_LIMITER`, dashboard shows
+the `AuthRateLimiter` namespace with no objects; documents `/`, `/login`,
+`/agents`, `/agents/<id>`, `/security`, `/dashboard` 200 `no-store`, header
+nonce = body nonces, headless Chromium 0 CSP violations; `/health` ok,
+`POST /health` 405, `/api*` JSON 404, signed-out `/api/agents` 401,
+foreign-origin and Origin-less writes 403; `/api/config` unchanged; one
+invalid-Turnstile sign-in start → 403 `TURNSTILE_FAILED`; one passkey
+options request → 200; operator's real Google sign-in → dashboard, Agents,
+Security, session cookie `__Secure-…; HttpOnly; SameSite=Strict`, logout,
+0 sessions; optionally a passkey sign-in; D1 schema 18/38/23 and row
+fingerprints equal to the bookmark; `wrangler tail` during all of it: no
+exceptions, no Durable Object invocations.
+
+Carrier failure (fix forward; no rollback to W1 exists):
+- Deploy step fails before `wrangler deploy` (any `REFUSING`): nothing
+  changed; restore settings (C3), investigate.
+- `wrangler deploy` fails: check `deployments status`. If `91dc87aa` is
+  still 100%, nothing activated (the migration is applied only with a
+  successful upload); restore settings and investigate.
+- Carrier live but a smoke check fails: first compare with W1 behaviour
+  (the request code is W1's). Fix forward with a new version of the
+  carrier source plus the fix, through the normal upload-only path (no
+  migration is pending any more), then `versions deploy`. Only if the class
+  itself must go: a further `deleted_classes` migration via `wrangler
+  deploy` (deletes the namespace; still no route back to pre-carrier
+  versions).
+
+Then, separately approved: implementation upload (`f6ab94b`, inactive),
+promotion with `versions deploy <id>@100%`, the controlled 21-attempt
+check, and rollback = `versions deploy <carrier-id>@100%`.
