@@ -49,7 +49,7 @@ export class IdentityService {
     const existing = await this.users.getByAuthUserId(authUserId);
     if (existing) return { user: existing, created: false };
     // Only creation is rate limited (per source); returning users never are.
-    await enforceRateLimit(this.limiter, "signup", { kind: "ip", address: options.sourceAddress ?? "unknown" });
+    await enforceRateLimit(this.limiter, "signup", { kind: "ip", address: options.sourceAddress ?? null });
     return this.users.createIfAbsent({
       authUserId,
       displayName: toDisplayName(options.name),

@@ -92,6 +92,29 @@ same commit.
 off on the live staging Worker (per-version hostnames return 404). Every deploy
 re-sends this setting, so it is set in configuration, not only in the dashboard.
 
+### Durable Object classes and the upload-only workflow
+
+`wrangler versions upload` refuses a Worker with a pending Durable Object
+migration ("Durable Object migrations must be applied with `wrangler
+deploy`"); the check runs before anything is uploaded, so the Builds
+deploy command fails without changing anything. A migration can only be
+applied by `wrangler deploy`, which also activates that version at 100%.
+After a migration, Cloudflare blocks rollback to any version from before it.
+
+So a new class is introduced in two approved steps:
+
+1. **Carrier** (one-off `wrangler deploy`, separately approved): a version
+   whose behaviour is the active version's, plus only the new class, its
+   binding and migration (unused). It becomes the rollback baseline; the
+   versions before it can no longer be rolled back to.
+2. **Implementation** through the normal path: push to `deploy/staging`,
+   Builds uploads an inactive version, separate approval to promote.
+   Rollback = `versions deploy <carrier>@100%` (no lifecycle change between
+   them, so it is allowed).
+
+The `AuthRateLimiter` class (migration tag `v1-auth-rate-limiter`) has not
+been applied to staging or production; see the log entry below.
+
 ## Staging smoke test
 
 Run after every staging deploy:
@@ -426,3 +449,35 @@ Operator: from now on only the W1 operator (`eb2dad8` or later) may run
 against staging. `suspend`/`disable` revoke Web-side agent profiles, and
 `reactivate` does not restore them. Lightagent-side revocation is not
 implemented (W2).
+
+### 2026-10-15: Authoritative rate limiter (implemented; not deployed)
+
+The login rate-limit finding: the Workers Rate Limiting bindings on staging
+never refused (controlled test from one IP at SJC: 25/25 sign-in starts with
+an invalid Turnstile token and 30/30 passkey option requests, all allowed;
+`wrangler tail` showed every request reaching Turnstile with no
+`ratelimit.*` line). Code order and bindings were correct. Matches the open
+upstream issue cloudflare/workers-sdk#16097.
+
+Fix: SQLite-backed Durable Object counters (`AuthRateLimiter`, binding
+`AUTH_RATE_LIMITER`) decide `login`, `passkey_login` and `signup`; see
+[SECURITY_MODEL.md](SECURITY_MODEL.md#rate-limiting). `wrangler.jsonc`
+declares the binding and migration for development, staging and
+production; nothing has been deployed. Staging still runs W1 `91dc87aa`.
+
+Rollout (each step needs its own approval):
+
+1. Carrier commit (class, binding, migration only; limiter not wired):
+   from a clean checkout of that commit, `CLOUDFLARE_ENV=staging npm run
+   ci:cloudflare`, the staging guard, then `npx wrangler deploy --message
+   "<approval reference>"` (the staging build's redirected config targets
+   `lightagent-control-staging`). Verify: deployment shows the new version
+   at 100%, `wrangler versions view` lists `AUTH_RATE_LIMITER`, smoke test
+   as after B.3. Rollback after this point: only to the carrier or later.
+2. Push the implementation commit to `deploy/staging`; Builds uploads an
+   inactive version (the migration is no longer pending).
+3. Promote with `versions deploy <id>@100%`. Controlled check: 21 sign-in
+   starts from one IP with an invalid Turnstile token give 20 ×
+   `TURNSTILE_FAILED`, then `RATE_LIMITED` with `Retry-After`; a real Google
+   sign-in still works. Rollback: `versions deploy <carrier>@100%`.
+

@@ -245,20 +245,23 @@ requests never see a challenge. The widget is rendered explicitly (action
 | staging | staging widget (hostname-restricted) | `TURNSTILE_SECRET` Worker secret |
 | production | unset | unset |
 
-## Rate limits (Workers Rate Limiting bindings)
+## Rate limits
 
-| Policy | Binding | Limit | Key | Applied to |
+| Policy | Limit | Key | Enforcement | Applied to |
 |---|---|---|---|---|
-| `login` | `RL_LOGIN` | 20 / 60 s | client IP | OAuth start, OAuth callback |
-| `passkey_login` | `RL_PASSKEY_LOGIN` | 20 / 60 s | client IP | passkey options + verification |
-| `signup` | `RL_SIGNUP` | 10 / 60 s | client IP | creation of a new application profile only (returning users are never limited by it) |
-| `security_write` | `RL_SECURITY_WRITE` | 20 / 60 s | user | passkey register/rename/remove, session revoke/revoke-all |
-| `read` | `RL_READ` | 120 / 60 s | user | security reads |
+| `login` | 20 / 60 s | client IP (IPv6 /64) | Durable Object (authoritative) + binding | OAuth start, OAuth callback |
+| `passkey_login` | 20 / 60 s | client IP (IPv6 /64) | Durable Object (authoritative) + binding | passkey options + verification |
+| `signup` | 10 / 60 s | client IP (IPv6 /64) | Durable Object (authoritative) + binding | creation of a new application profile only (returning users are never limited by it) |
+| `security_write` | 20 / 60 s | user | binding only | passkey register/rename/remove, session revoke/revoke-all, display name |
+| `read` | 120 / 60 s | user | binding only | security reads |
 
 Authenticated operations are keyed on the account, not the IP, so shared/NAT
 users don't affect each other; only pre-authentication steps use the IP, with
-limits generous enough for a household or office. Better Auth's own limiter
-is disabled (it is in-memory per isolate).
+limits generous enough for a household or office. A real OAuth sign-in uses
+two `login` admissions (start and callback). Better Auth's own limiter is
+disabled (it is in-memory per isolate). The bindings were observed not to
+refuse on staging; see [SECURITY_MODEL.md](SECURITY_MODEL.md#rate-limiting)
+for the Durable Object design and what is still binding-only.
 
 ## Audit events
 

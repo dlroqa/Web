@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { unstable_readConfig } from "wrangler";
+import { RATE_LIMIT_POLICIES } from "../../src/worker/security/rate-limit-policies";
 
 const read = (env?: string) => unstable_readConfig({ config: "wrangler.jsonc", env });
 
@@ -30,6 +31,14 @@ describe("wrangler.jsonc", () => {
     it("binds AUTH_RATE_LIMITER to the SQLite-backed AuthRateLimiter class in this Worker", () => {
       expect(config.durable_objects.bindings).toEqual([{ name: "AUTH_RATE_LIMITER", class_name: "AuthRateLimiter" }]);
       expect(config.migrations).toEqual([{ tag: "v1-auth-rate-limiter", new_sqlite_classes: ["AuthRateLimiter"] }]);
+    });
+
+    it("uses the same limits as this environment's rate-limit bindings", () => {
+      for (const [policy, definition] of Object.entries(RATE_LIMIT_POLICIES)) {
+        if (!definition.authoritative) continue;
+        const binding = config.ratelimits.find((r: { name: string }) => r.name === definition.binding);
+        expect(binding?.simple, policy).toEqual({ limit: definition.authoritative.limit, period: definition.periodSeconds });
+      }
     });
   });
 

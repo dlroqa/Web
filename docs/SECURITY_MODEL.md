@@ -206,25 +206,76 @@ approval), starting with a short max-age. `X-Frame-Options` is not sent
 
 ## Rate limiting
 
-`src/worker/security/rate-limit.ts`, Workers Rate Limiting bindings.
+`src/worker/security/rate-limit.ts` (policies in `rate-limit-policies.ts`).
 
-| Policy | Binding | Limit | If the limiter fails |
-|---|---|---|---|
-| login | `RL_LOGIN` | 20 / 60 s | deny |
-| signup | `RL_SIGNUP` | 10 / 60 s | deny |
-| recovery | `RL_RECOVERY` | 3 / 60 s | deny |
-| provision | `RL_PROVISION` | 5 / 60 s | deny |
-| read | `RL_READ` | 120 / 60 s | allow (logged) |
-| passkey_login | `RL_PASSKEY_LOGIN` | 20 / 60 s | deny |
-| security_write | `RL_SECURITY_WRITE` | 20 / 60 s | deny |
+Two layers:
 
-(Limits are those in `wrangler.jsonc` for every environment; see
-[AUTHENTICATION.md](AUTHENTICATION.md) for where each policy is applied.)
+1. **Workers Rate Limiting bindings**, one per policy, limits in
+   `wrangler.jsonc`. Per-location and eventually consistent; on staging
+   (2026-10-15) they were observed **never to refuse** (25/25 sign-in starts
+   and 30/30 passkey option requests from one IP in under a minute; upstream
+   [cloudflare/workers-sdk#16097](https://github.com/cloudflare/workers-sdk/issues/16097)).
+   A binding refusal is honoured; an approval proves nothing.
+2. **Authoritative Durable Object counters** (`rate-limit-do.ts`, class
+   `AuthRateLimiter`, binding `AUTH_RATE_LIMITER`) for the policies marked
+   below. These make the admission decision.
 
-Keys are `policy:kind:value` (user id preferred; IP only for unauthenticated
-endpoints). Each environment uses its own namespace ids. Exceeding a limit
-returns `429 RATE_LIMITED` with `Retry-After`. The binding is per-location and
-eventually consistent, so it is abuse protection, not an exact quota.
+| Policy | Binding | Limit | Authoritative | If the limiter fails | Applied to |
+|---|---|---|---|---|---|
+| login | `RL_LOGIN` | 20 / 60 s | **yes** (DO) | deny | OAuth start, OAuth callbacks (shared counter) |
+| passkey_login | `RL_PASSKEY_LOGIN` | 20 / 60 s | **yes** (DO) | deny | passkey authenticate options + verification (shared counter) |
+| signup | `RL_SIGNUP` | 10 / 60 s | **yes** (DO) | deny | creation of a new application profile |
+| security_write | `RL_SECURITY_WRITE` | 20 / 60 s | no (binding only) | deny | profile name, passkey add/rename/remove, session revoke/revoke-all |
+| read | `RL_READ` | 120 / 60 s | no (binding only) | allow (logged) | account and security reads |
+| recovery | `RL_RECOVERY` | 3 / 60 s | no | deny | not used by any route yet |
+| provision | `RL_PROVISION` | 5 / 60 s | no | deny | not used by any route yet (provisioning is not exposed) |
+
+Policies marked "binding only" are **not effectively limited** while the
+binding does not refuse. Before the application is public:
+`security_write` must become authoritative (it is authenticated and keyed
+per user, so the exposure is one account abusing itself, but it drives D1
+writes and passkey ceremonies); `provision` and `recovery` must be
+authoritative before any route uses them; `read` may stay binding-only
+(fail-open by design). Administrative actions (`src/operator`) have no HTTP
+route and are not rate limited.
+
+**Authoritative counters.** One SQLite-backed Durable Object per counter:
+
+- *Semantics*: exact rolling window (sliding log). A request is admitted when
+  fewer than `limit` admissions happened in the preceding `period`; no
+  interval of length `period` ever holds more than `limit` admissions.
+  Refusals are not recorded, so retrying never extends a lockout.
+  `Retry-After` is the time until the oldest admission expires (1 s to
+  `period`).
+- *Atomicity*: the count and insert are synchronous SQLite calls in one
+  Durable Object event; concurrent requests for one key are serialized.
+- *Durability*: no in-memory state; counts survive eviction and restarts.
+- *Retention*: rows are expiry times (at most `limit` per counter); an alarm
+  removes expired rows and deletes the object's storage once empty.
+- *Keys*: object name `rl1:<environment>:<policy>:<kind>:<HMAC>`; the HMAC
+  covers policy, kind and value under a key derived from
+  `BETTER_AUTH_SECRET` (domain-separated), so names never contain an address
+  or user id and cannot be precomputed. Objects store expiry times only.
+  Rotating `BETTER_AUTH_SECRET` resets all counters.
+- *Isolation*: each environment is its own Worker with its own namespace;
+  policy and environment are also in every name.
+- *Client identity*: only `CF-Connecting-IP` (set by Cloudflare's edge);
+  `X-Forwarded-For` and similar are never read. IPv6 clients are keyed on
+  their /64. A missing or malformed address is refused (`429`), not pooled.
+- *Fail closed*: an unidentified client, a missing `AUTH_RATE_LIMITER`
+  binding, or any Durable Object error refuses the request
+  (`429 RATE_LIMITED`, `Retry-After` = period), before Turnstile, Better
+  Auth or any D1 write.
+
+Order on the sign-in start: origin check → body validation → login limiter
+(binding, then Durable Object) → Turnstile → Better Auth. Passkey options
+and verification, and the OAuth callbacks, are limited before Better Auth
+runs (so no passkey challenge or verification row is written for a refused
+request). The signup limit runs inside session creation, after the OAuth
+exchange (already limited by `login`) and before the profile is created.
+
+Binding keys remain `policy:kind:value` (the normalized address for IP
+subjects). Exact quotas (e.g. profiles per user) are enforced in D1.
 
 ## Turnstile
 

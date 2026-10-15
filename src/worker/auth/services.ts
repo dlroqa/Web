@@ -13,7 +13,8 @@ import { decideAccess, type Access } from "../../shared/access";
 import { UserRepository, type UserStatus } from "../db/users";
 import type { RequestContext } from "../http/context";
 import { ApiError } from "../http/errors";
-import { CloudflareRateLimiter, type RateLimiter } from "../security/rate-limit";
+import { rateLimitAddress } from "../security/client-address";
+import { AuthoritativeRateLimiter, CloudflareRateLimiter, type RateLimiter } from "../security/rate-limit";
 import { securityMetadataFor } from "../security/source-identity";
 import { describeError } from "../utils/log";
 import { IdentityService, SESSION_ALLOWED_STATUSES } from "./identity";
@@ -79,11 +80,17 @@ export function createAuthServices(ctx: RequestContext) {
     throw new ApiError("AUTH_UNAVAILABLE", { logReason: authConfig ? "BETTER_AUTH_SECRET missing or short" : "auth not configured" });
   }
 
-  const limiter: RateLimiter = new CloudflareRateLimiter(env, logger);
+  const limiter: RateLimiter = new AuthoritativeRateLimiter({
+    bindings: new CloudflareRateLimiter(env, logger),
+    namespace: env.AUTH_RATE_LIMITER,
+    environment: config.environment,
+    secret,
+    logger,
+  });
   const users = new UserRepository(env.DB);
   const identity = new IdentityService(users, authConfig.signupPolicy, limiter);
   const audit = new AuditRecorder(new D1AuditSink(env.DB), logger);
-  const sourceAddress = request.headers.get("cf-connecting-ip");
+  const sourceAddress = rateLimitAddress(request);
   let security: Promise<SecurityMetadata> | undefined;
   const securityMetadata = () => (security ??= securityMetadataFor(request, env).catch(() => ({})));
   // Set by the session.create hook when it refuses a sign-in for account

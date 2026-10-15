@@ -25,6 +25,7 @@ import type { RequestContext } from "../http/context";
 import { ApiError } from "../http/errors";
 import { jsonError } from "../http/responses";
 import { applyApiHeaders } from "../security/headers";
+import { rateLimitAddress } from "../security/client-address";
 import { enforceRateLimit } from "../security/rate-limit";
 import { TurnstileVerifier } from "../security/turnstile";
 import { readSecret } from "../config/secrets";
@@ -154,8 +155,9 @@ async function upstreamError(ctx: RequestContext, s: AuthServices, upstream: Res
   return response;
 }
 
-function clientAddress(ctx: RequestContext): string {
-  return ctx.request.headers.get("cf-connecting-ip") ?? "unknown";
+/** Trusted, normalized client address for IP-keyed limits; null when unidentifiable. */
+function clientAddress(ctx: RequestContext): string | null {
+  return rateLimitAddress(ctx.request);
 }
 
 /**

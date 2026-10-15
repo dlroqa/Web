@@ -8,7 +8,7 @@ import { createLogger } from "../../src/worker/utils/log";
 import { randomId } from "../../src/worker/utils/random";
 import { FakeProviders, get, identity, send, signIn } from "../helpers/auth";
 import { CookieJar, parseSetCookie } from "../helpers/cookies";
-import { BASE, call, testEnv } from "../helpers/worker";
+import { BASE, call, randomClientIp, testEnv } from "../helpers/worker";
 
 const SESSION_COOKIE = "lightagent.session_token";
 let providers: FakeProviders;
@@ -372,7 +372,7 @@ describe("sessions", () => {
     // Foreign origin for this config: rejected before anything is set.
     expect(response.status).toBe(403);
     const ok = await (async () => {
-      const r = new Request(`${origin}/api/auth/sign-in/social`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ provider: "google", turnstileToken: "t" }) });
+      const r = new Request(`${origin}/api/auth/sign-in/social`, { method: "POST", headers: { origin, "content-type": "application/json", "cf-connecting-ip": randomClientIp() }, body: JSON.stringify({ provider: "google", turnstileToken: "t" }) });
       const { createWorker } = await import("../../src/worker/index");
       const { createExecutionContext, waitOnExecutionContext } = await import("cloudflare:test");
       const ctx = createExecutionContext();
