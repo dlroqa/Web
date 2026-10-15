@@ -87,6 +87,17 @@ describe("browser-delivered assets", () => {
   });
 });
 
+describe("generated Wrangler configuration", () => {
+  const config = () =>
+    JSON.parse(readFileSync("dist/lightagent_control/wrangler.json", "utf8")) as { vars: { ENVIRONMENT: string }; preview_urls?: boolean };
+
+  it("keeps Preview URLs off in a deployed-environment build", () => {
+    const { vars, preview_urls } = config();
+    if (vars.ENVIRONMENT === "development") expect(preview_urls).toBeUndefined();
+    else expect(preview_urls).toBe(false);
+  });
+});
+
 describe("worker bundle", () => {
   it("is built with the production CSP mode", () => {
     const bundle = readFileSync(WORKER, "utf8");

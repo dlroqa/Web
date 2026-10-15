@@ -2,6 +2,12 @@ import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-worker
 import { defineConfig } from "vitest/config";
 
 export default defineConfig(async () => {
+  // Tests always run against the top-level (development) configuration.
+  // Wrangler falls back to CLOUDFLARE_ENV when no environment is given, and
+  // Cloudflare Workers Builds sets CLOUDFLARE_ENV=staging for the staging
+  // build, so it is removed here rather than inherited by the test pool.
+  delete process.env["CLOUDFLARE_ENV"];
+
   // The real migration files, applied to the test D1 before any test runs.
   const migrations = await readD1Migrations("./migrations");
 
@@ -18,6 +24,9 @@ export default defineConfig(async () => {
           plugins: [
             cloudflareTest({
               wrangler: { configPath: "./wrangler.jsonc" },
+              // Every binding is local (miniflare). The pool defaults to true,
+              // which would let a binding marked `remote` reach a real resource.
+              remoteBindings: false,
               miniflare: {
                 compatibilityDate: "2026-08-22",
                 // A second, empty local D1 for the migration-upgrade test (0001–0002 data, then 0003).

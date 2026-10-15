@@ -36,6 +36,50 @@ npm run db:migrate:staging        # wrangler d1 migrations apply DB --env stagin
 Never run a production deploy from a build made without
 `CLOUDFLARE_ENV=production`, and never without explicit approval.
 
+## Cloudflare Workers Builds (staging)
+
+Staging builds and validation run on Cloudflare's build machines, connected
+to the Worker `lightagent-control-staging` (Settings → Builds). There are no
+GitHub Actions for Web.
+
+| Setting | Value |
+|---|---|
+| Repository / production branch | `dlroqa/Web` / `deploy/staging` |
+| Builds for Preview branches | off |
+| Root directory | `/` |
+| Build variables | `CLOUDFLARE_ENV=staging`, `NODE_VERSION=22` |
+| Build command | `npm run ci:cloudflare` |
+| Deploy command | staging guard, then `npx wrangler deploy --env staging --dry-run` |
+
+`npm run ci:cloudflare` runs, failing at the first error:
+
+1. `protocol:verify` (`scripts/verify-frozen-protocol.mjs`, then the
+   documented `sha256sum --check` of `MANIFEST.sha256`). `MANIFEST.json` must
+   have the accepted compatibility digest (SHA-256 of its exact bytes, §15),
+   fixture digest and specification hash. Every hashed file must match
+   `MANIFEST.json`, and `MANIFEST.sha256` must be exactly the list
+   `MANIFEST.json` implies. An edited checksum list cannot hide an edited fixture.
+2. `typecheck`.
+3. `npm test`: Worker/D1 (workerd), static, client and provisioning tests,
+   including the crash/recovery matrix and the schedule simulation. The tests
+   always use the development configuration with local bindings only:
+   `vitest.config.ts` removes `CLOUDFLARE_ENV` and sets `remoteBindings: false`.
+4. `build`, the only build, for `CLOUDFLARE_ENV=staging`.
+5. `test:build`, on that build output. It also checks that a deployed-environment
+   build keeps `preview_urls: false`.
+
+The deploy command's guard refuses unless `dist/lightagent_control/wrangler.json`
+names `lightagent-control-staging`, `ENVIRONMENT=staging` and the staging
+`DB` (`lightagent-control-staging`, `3cc0724d-fb83-4477-ac0f-5aee58606fdf`).
+Workers Builds sets the Worker name from the connected Worker
+(`WRANGLER_CI_OVERRIDE_NAME`), so the guard is what stops a non-staging build
+from reaching it. While the command ends in `--dry-run`, a build uploads
+nothing. Activation (a live deploy or `versions upload`) needs its own approval.
+
+`preview_urls` is `false` for staging and production in `wrangler.jsonc`.
+Every deploy re-sends this setting, so it is set in configuration, not only
+in the dashboard.
+
 ## Staging smoke test
 
 Run after every staging deploy:

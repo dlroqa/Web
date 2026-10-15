@@ -13,6 +13,8 @@
     "cf-typegen": "wrangler types",
     "check": "npm run typecheck && npm test && npm run build && npm run test:build",
     "test:build": "vitest run --project build",
+    "protocol:verify": "node scripts/verify-frozen-protocol.mjs && sha256sum --check --strict protocol/la-web-provisioning-1/MANIFEST.sha256",
+    "ci:cloudflare": "npm run protocol:verify && npm run typecheck && npm test && npm run build && npm run test:build",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:staging": "wrangler d1 migrations apply DB --env staging --remote",
     "operator": "esbuild src/operator/main.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=node_modules/.cache/lightagent/operator.mjs && node node_modules/.cache/lightagent/operator.mjs",

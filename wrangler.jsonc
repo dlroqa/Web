@@ -64,6 +64,11 @@
   "env": {
     "staging": {
       "name": "lightagent-control-staging",
+      // No per-version Preview URLs: every uploaded version would otherwise be
+      // reachable on its own hostname with this environment's D1 and secrets.
+      // Set here, not only in the dashboard, because every deploy re-sends it.
+      // workers_dev is left unset (default: enabled while there are no routes).
+      "preview_urls": false,
       "vars": {
         "ENVIRONMENT": "staging",
         "TRUSTED_ORIGINS": "https://lightagent-control-staging.eddelaroca.workers.dev",
@@ -95,6 +100,8 @@
     },
     "production": {
       "name": "lightagent-control-production",
+      // No per-version Preview URLs (see staging).
+      "preview_urls": false,
       // TRUSTED_ORIGINS and TURNSTILE_EXPECTED_HOSTNAMES stay empty until the
       // production hostname is approved; empty fails closed (all state-changing
       // requests and all Turnstile checks are rejected).

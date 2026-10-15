@@ -13,6 +13,30 @@ import { buildFixtureFiles, buildManifest, FIXTURE_DIR, SPEC_PATH } from "../../
 const sha256 = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 const NOT_IN_MANIFEST = new Set(["MANIFEST.json", "MANIFEST.sha256", "ACCEPTANCE.md"]);
 
+/**
+ * The frozen revision, as recorded in ACCEPTANCE.md ("Frozen revision"). The
+ * compatibility digest is the SHA-256 of MANIFEST.json's exact bytes
+ * (PROVISIONING_PROTOCOL §15), which in turn pins the specification and every
+ * fixture file. Any change to a hashed byte is a new revision (r5), not an edit.
+ */
+const FROZEN_R4 = {
+  compatibilityDigest: "454066f8fb75e886119c401e4a45ec15ebf2b83115165b2e1f85180abfd29a43",
+  fixtureDigest: "bfd171db27c03321227bec1a0e40325bad295b2a228cf02294b3a1e3a87d6e4b",
+  specificationSha256: "5f65a623aa467ec940d2942583a821b6dd23bf7b9221ccaa8e3e72fc4687b36a",
+};
+
+describe("LA-WEB-PROVISIONING/1 frozen r4", () => {
+  it("MANIFEST.json has the accepted compatibility digest", () => {
+    expect(sha256(readFileSync(join(FIXTURE_DIR, "MANIFEST.json")))).toBe(FROZEN_R4.compatibilityDigest);
+  });
+
+  it("MANIFEST.json records the accepted fixture digest and specification hash", () => {
+    const manifest = JSON.parse(readFileSync(join(FIXTURE_DIR, "MANIFEST.json"), "utf8")) as { fixtureDigest: string; specification: { sha256: string } };
+    expect(manifest.fixtureDigest).toBe(FROZEN_R4.fixtureDigest);
+    expect(manifest.specification.sha256).toBe(FROZEN_R4.specificationSha256);
+  });
+});
+
 describe("LA-WEB-PROVISIONING/1 fixtures", () => {
   it("are byte-for-byte what the generator produces", async () => {
     const files = await buildFixtureFiles();

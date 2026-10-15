@@ -15,7 +15,7 @@ durable, crash-recoverable **coordination only**:
 | | |
 |---|---|
 | Base | `l0/la-web-provisioning-r4` at `174e3881b7655260790cf0e419e0a9baba25441d` (frozen r4 acceptance) |
-| Branch | `w1/provisioning-journal` (local; the repository has no remote) |
+| Branch | `w1/provisioning-journal`, also built for staging from `deploy/staging` (private `github.com/dlroqa/Web`; see DEPLOYMENT.md, "Cloudflare Workers Builds") |
 | Migration | `migrations/0003_provisioning_journal.sql`, local D1 only. **Not applied to staging or production** |
 | Code | `src/worker/provisioning/` (pure protocol + lifecycle, coordinator), `src/worker/db/provisioning-journal.ts` (all journal SQL), operator additions |
 
