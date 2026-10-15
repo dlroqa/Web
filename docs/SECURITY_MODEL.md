@@ -210,15 +210,15 @@ approval), starting with a short max-age. `X-Frame-Options` is not sent
 
 | Policy | Binding | Limit | If the limiter fails |
 |---|---|---|---|
-| login | `RL_LOGIN` | 10 / 60 s | deny |
-| signup | `RL_SIGNUP` | 5 / 60 s | deny |
+| login | `RL_LOGIN` | 20 / 60 s | deny |
+| signup | `RL_SIGNUP` | 10 / 60 s | deny |
 | recovery | `RL_RECOVERY` | 3 / 60 s | deny |
 | provision | `RL_PROVISION` | 5 / 60 s | deny |
 | read | `RL_READ` | 120 / 60 s | allow (logged) |
 | passkey_login | `RL_PASSKEY_LOGIN` | 20 / 60 s | deny |
 | security_write | `RL_SECURITY_WRITE` | 20 / 60 s | deny |
 
-(`login` is 20 / 60 s and `signup` 10 / 60 s since Phase 4; see
+(Limits are those in `wrangler.jsonc` for every environment; see
 [AUTHENTICATION.md](AUTHENTICATION.md) for where each policy is applied.)
 
 Keys are `policy:kind:value` (user id preferred; IP only for unauthenticated

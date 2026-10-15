@@ -235,6 +235,84 @@ describe("rate limiting", () => {
     const other = await send("POST", "/api/auth/sign-in/social", new CookieJar(), { provider: "google", turnstileToken: "t" });
     expect(other.status).toBe(200);
   }, 30_000);
+
+  // The live staging finding: every attempt carried an invalid Turnstile
+  // token. The limiter must still refuse, because it runs before Siteverify.
+  it("refuses one client address even when every attempt fails Turnstile, and stops calling Siteverify", async () => {
+    providers.turnstile = "fail";
+    const ip = "198.51.100.78";
+    const codes: string[] = [];
+    for (let i = 0; i < 25; i += 1) {
+      const response = await call("/api/auth/sign-in/social", {
+        method: "POST",
+        headers: { origin: BASE, "content-type": "application/json", "cf-connecting-ip": ip },
+        body: JSON.stringify({ provider: "google", turnstileToken: "invalid" }),
+      });
+      codes.push(((await response.json()) as { error: { code: string } }).error.code);
+      if (response.status === 429) expect(response.headers.get("retry-after")).toBe("60");
+    }
+    expect(codes.filter((c) => c === "TURNSTILE_FAILED").length).toBeLessThanOrEqual(20);
+    expect(codes.at(-1)).toBe("RATE_LIMITED");
+    expect(providers.outbound.filter((o) => o.includes("/turnstile/v0/siteverify")).length).toBe(codes.filter((c) => c === "TURNSTILE_FAILED").length);
+  }, 30_000);
+
+  describe("sign-in start ordering: origin → body → login limiter → Turnstile → Better Auth", () => {
+    function countingLimiter(success: boolean): RateLimit & { keys: string[] } {
+      const keys: string[] = [];
+      return { keys, limit: async ({ key }) => (keys.push(key), { success }) };
+    }
+    const siteverifyCalls = () => providers.outbound.filter((o) => o.includes("/turnstile/v0/siteverify")).length;
+    const start = (rl: RateLimit, init: { origin?: string; body?: string }) =>
+      call(
+        "/api/auth/sign-in/social",
+        {
+          method: "POST",
+          headers: { origin: init.origin ?? BASE, "content-type": "application/json", "cf-connecting-ip": "198.51.100.79" },
+          body: init.body ?? JSON.stringify({ provider: "google", turnstileToken: "t" }),
+        },
+        { env: testEnv({ RL_LOGIN: rl }) },
+      );
+
+    it("a foreign origin is refused before the limiter or Turnstile", async () => {
+      const rl = countingLimiter(true);
+      expect((await start(rl, { origin: "https://evil.example" })).status).toBe(403);
+      expect(rl.keys).toEqual([]);
+      expect(siteverifyCalls()).toBe(0);
+    });
+
+    it("a malformed body is refused before the limiter or Turnstile", async () => {
+      const rl = countingLimiter(true);
+      expect((await start(rl, { body: JSON.stringify({ provider: "google" }) })).status).toBe(400);
+      expect(rl.keys).toEqual([]);
+      expect(siteverifyCalls()).toBe(0);
+    });
+
+    it("a limiter refusal is a 429 and never reaches Siteverify or Better Auth", async () => {
+      const rl = countingLimiter(false);
+      const response = await start(rl, {});
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("60");
+      expect(response.headers.getSetCookie()).toEqual([]);
+      expect(rl.keys).toEqual(["login:ip:198.51.100.79"]);
+      expect(siteverifyCalls()).toBe(0);
+    });
+
+    it("the limiter is consulted, keyed on the client address, before Turnstile refuses", async () => {
+      providers.turnstile = "fail";
+      const rl = countingLimiter(true);
+      const response = await start(rl, {});
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe("TURNSTILE_FAILED");
+      expect(rl.keys).toEqual(["login:ip:198.51.100.79"]);
+      expect(siteverifyCalls()).toBe(1);
+    });
+  });
+
+  it("passkey sign-in options are refused by their own limiter before Better Auth", async () => {
+    const rl: RateLimit = { limit: async () => ({ success: false }) };
+    const response = await call("/api/auth/passkey/generate-authenticate-options", { headers: { "cf-connecting-ip": "198.51.100.80" } }, { env: testEnv({ RL_PASSKEY_LOGIN: rl }) });
+    expect(response.status).toBe(429);
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
 });
 
 describe("account linking cannot be used for takeover", () => {
