@@ -250,23 +250,26 @@ route and are not rate limited.
 - *Atomicity*: the count and insert are synchronous SQLite calls in one
   Durable Object event; concurrent requests for one key are serialized.
 - *Durability*: no in-memory state; counts survive eviction and restarts.
-- *Retention*: rows are expiry times (at most `limit` per counter); an alarm
-  removes expired rows, re-arms at the latest remaining expiry, and deletes
-  the object's storage once empty. An admission schedules the alarm only
-  when none is scheduled (a lost alarm is re-armed by the next admission;
-  decisions never depend on it).
-- *Storage writes* (measured in tests with SQLite's own row counts): an
+- *Retention*: rows are expiry times (at most `limit` per counter, since
+  every decision first deletes expired rows by timestamp). An admission
+  schedules the cleanup alarm, at its own expiry, only when none is
+  scheduled; a lost alarm is re-armed by the next admission; decisions
+  never depend on the alarm. The alarm removes expired rows; with rows
+  left it re-arms at the later of their latest expiry and 5 minutes from
+  now (`MIN_CLEANUP_INTERVAL_MS`), with none left it deletes the object's
+  storage. Expired rows outlive the last expiry by at most 5 minutes.
+- *Storage writes and requests* (tests measure SQL writes with SQLite's own
+  row counts and count `setAlarm`, billed as one row written): an
   admission is one INSERT and, after expiry, one DELETE; a refusal writes
-  nothing; a new counter's table costs 2 rows; `setAlarm` (billed as one
-  row written) runs once per alarm, and never more often than once per
-  admission (before F1: once per admission). Depends on the traffic: a
-  counter busy at its limit costs under 2 billable writes per admission
-  (about 3 before F1), with about one alarm per period; one request every
-  30–60 s costs the same writes as before F1 but up to one extra alarm
-  (one Durable Object request) per admission; one request per period or
-  slower is unchanged. Writes, the first Workers Free quota to run out,
-  are never higher than before F1. The billing of `deleteAll` is not
-  measurable locally.
+  nothing; a new counter's table costs 2 rows. Each alarm is one request
+  and, unless it ends the counter, one `setAlarm`. An active counter runs
+  at most one alarm per 5 minutes after its first, and never more
+  `setAlarm` calls than admissions, so writes are never above the scheme
+  before F1 (a `setAlarm` per admission). Compared with before F1, a
+  counter costs at most one extra alarm per lifetime plus one per 5
+  minutes of activity, and saves up to one `setAlarm` per admission (a
+  counter busy at its limit: under 2 billable writes per admission instead
+  of about 3). The billing of `deleteAll` is not measurable locally.
 - *Keys*: object name `rl1:<environment>:<policy>:<kind>:<HMAC>`; the HMAC
   covers policy, kind and value under a key derived from
   `BETTER_AUTH_SECRET` (domain-separated), so names never contain an address

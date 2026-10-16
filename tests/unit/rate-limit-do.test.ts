@@ -1,6 +1,6 @@
 import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { admitAndSchedule, admitAt, cleanupAt, type AuthRateLimiter, type CounterStorage } from "../../src/worker/security/rate-limit-do";
+import { admitAndSchedule, admitAt, cleanupAt, MIN_CLEANUP_INTERVAL_MS, type AuthRateLimiter, type CounterStorage } from "../../src/worker/security/rate-limit-do";
 import { randomId } from "../../src/worker/utils/random";
 
 const T0 = Date.UTC(2026, 9, 15, 12, 0, 0);
@@ -132,10 +132,12 @@ describe("AuthRateLimiter object", () => {
     const scheduled = await alarmOf(stub);
     expect(scheduled).toBeGreaterThan(Date.now() + 50_000);
 
-    // The test helper runs the alarm now, before the admission has expired.
+    // The test helper runs the alarm now, before the admission has expired:
+    // it keeps the row and re-arms no sooner than the minimum interval.
+    const before = Date.now();
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     expect(await rows(stub)).toBe(1);
-    expect(await alarmOf(stub)).toBe(scheduled);
+    expect(await alarmOf(stub)).toBeGreaterThanOrEqual(Math.max(scheduled ?? 0, before + MIN_CLEANUP_INTERVAL_MS));
 
     // Once every admission has expired, the alarm removes the object's storage.
     await runInDurableObject(stub, (_i, state) => state.storage.sql.exec("UPDATE admissions SET expires_at = 0"));
@@ -147,17 +149,22 @@ describe("AuthRateLimiter object", () => {
     expect(await alarmOf(stub)).not.toBeNull();
   });
 
-  it("schedules one alarm per busy period, not one per admission", async () => {
+  it("schedules one alarm until it fires, not one per admission; then re-arms no sooner than the interval", async () => {
     const stub = counter();
     await stub.admit(5, 60);
     const first = await alarmOf(stub);
     for (let i = 0; i < 4; i += 1) await stub.admit(5, 60);
     expect(await alarmOf(stub)).toBe(first);
     expect(await rows(stub)).toBe(5);
-    // When it fires, the alarm re-arms at the latest admission's expiry.
+    // When it fires, the alarm re-arms no earlier than the latest
+    // admission's expiry and no sooner than the minimum interval.
+    const before = Date.now();
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     const latest = await runInDurableObject(stub, (_i, state) => state.storage.sql.exec<{ m: number }>("SELECT MAX(expires_at) AS m FROM admissions").one().m);
-    expect(await alarmOf(stub)).toBe(latest);
+    const rearmed = await alarmOf(stub);
+    expect(rearmed).toBeGreaterThanOrEqual(latest);
+    expect(rearmed).toBeGreaterThanOrEqual(before + MIN_CLEANUP_INTERVAL_MS);
+    expect(rearmed).toBeLessThanOrEqual(Date.now() + MIN_CLEANUP_INTERVAL_MS);
   });
 
   it("keeps its alarm across eviction, and the alarm still cleans up afterwards", async () => {
@@ -253,10 +260,13 @@ describe("storage writes (measured with SQLite's own row counts)", () => {
       let admissions = 0;
       let refusals = 0;
       let alarms = 0;
+      let lastAdmission = 0;
+      let lastAlarm = 0;
       const runDueAlarm = async (at: number) => {
         const due = await state.storage.getAlarm();
         if (due !== null && due <= at) {
           alarms += 1;
+          lastAlarm = due;
           await cleanupAt(storage, due);
         }
       };
@@ -264,18 +274,22 @@ describe("storage writes (measured with SQLite's own row counts)", () => {
         await runDueAlarm(now);
         const decision = await admitAndSchedule(storage, LIMIT, PERIOD, now);
         expect(decision).toEqual(reference(now));
-        if (decision.allowed) admissions += 1;
-        else refusals += 1;
+        if (decision.allowed) {
+          admissions += 1;
+          lastAdmission = now;
+        } else refusals += 1;
         now += minStep + next(maxStep - minStep);
       }
       // Then idle until the alarms have removed everything.
       for (let i = 0; i < 10 && (await state.storage.getAlarm()) !== null; i += 1) await runDueAlarm(Number.MAX_SAFE_INTEGER);
       const left = state.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'admissions'").one().n;
-      return { ...meter(), admissions, refusals, alarms, alarmLeft: await state.storage.getAlarm(), tableLeft: left };
+      return { ...meter(), admissions, refusals, alarms, lastAdmission, lastAlarm, alarmLeft: await state.storage.getAlarm(), tableLeft: left };
     });
     expect(result.admissions).toBeGreaterThan(0);
     expect(result.alarmLeft).toBeNull();
     expect(result.tableLeft).toBe(0);
+    // Nothing is kept longer than the minimum interval past the last expiry.
+    expect(result.lastAlarm).toBeLessThanOrEqual(result.lastAdmission + PERIOD * 1000 + MIN_CLEANUP_INTERVAL_MS);
     // Every admission is one INSERT and one DELETE; each counter lifetime
     // (ended by deleteAll) adds the 2-row CREATE TABLE.
     expect(result.rowsWritten).toBe(2 * result.admissions + 2 * result.deleteAll);
@@ -287,20 +301,25 @@ describe("storage writes (measured with SQLite's own row counts)", () => {
     // never more setAlarm calls than admissions: never more writes than
     // before F1 (one setAlarm per admission), whatever the traffic.
     expect(result.setAlarm).toBeLessThanOrEqual(result.admissions);
+    // Alarms of one counter lifetime are at least the minimum interval apart
+    // after the first; per lifetime at most 3 more than its span allows.
+    expect(result.alarms).toBeLessThanOrEqual(3 * result.deleteAll + Math.ceil(DURATION / MIN_CLEANUP_INTERVAL_MS));
   }, 60_000);
 
   // Steady traffic, one request every `gap` seconds against 20 / 60 s, for
-  // 15 minutes, then idle. Exact counts, worked out by hand, with the
-  // pre-F1 scheme (setAlarm on every admission, the alarm only firing once
-  // the counter is idle) for comparison:
+  // 15 minutes, then idle. Exact counts, worked out by hand, compared with
+  // the scheme before F1 (setAlarm on every admission, the alarm only firing
+  // once the counter is idle) and with re-arming at the latest expiry
+  // without a minimum interval:
   //
-  //   gap 45 s (20 admissions, one lifetime): rowsWritten 42, setAlarm 20,
-  //     alarms 20. Before F1: rowsWritten 42, setAlarm 20, alarms 1.
-  //     Same writes; one more alarm (Durable Object request) per admission.
+  //   gap 45 s (20 admissions, one lifetime): alarms at 60 s, then 360,
+  //     660, and 960 s (cleanup): rowsWritten 42, setAlarm 4, alarms 4.
+  //     Before F1: rowsWritten 42, setAlarm 20, alarms 1. Without the
+  //     interval: setAlarm 20, alarms 20.
   //   gap 90 s (10 admissions, a lifetime each): rowsWritten 40,
-  //     setAlarm 10, alarms 10, deleteAll 10. Same as before F1.
+  //     setAlarm 10, alarms 10, deleteAll 10, as before F1.
   it.each([
-    [45, { admissions: 20, rowsWritten: 42, setAlarm: 20, alarms: 20, deleteAll: 1 }],
+    [45, { admissions: 20, rowsWritten: 42, setAlarm: 4, alarms: 4, deleteAll: 1 }],
     [90, { admissions: 10, rowsWritten: 40, setAlarm: 10, alarms: 10, deleteAll: 10 }],
   ])("sparse traffic (one request every %i s): exact writes and alarms", async (gap, expected) => {
     const stub = counter();
@@ -329,7 +348,7 @@ describe("storage writes (measured with SQLite's own row counts)", () => {
     expect(result).toEqual(expected);
   }, 60_000);
 
-  it("a counter busy at its limit costs about two billable writes per admission (before F1: about three)", async () => {
+  it("a counter busy at its limit costs under two billable writes per admission (before F1: about three)", async () => {
     const stub = counter();
     const result = await runInDurableObject(stub, async (_i, state) => {
       const { storage, meter } = metered(state.storage);
@@ -347,7 +366,9 @@ describe("storage writes (measured with SQLite's own row counts)", () => {
     expect(result.deleteAll).toBe(0);
     // 2 (CREATE TABLE) + 200 INSERT + the DELETEs of the 180 already expired.
     expect(result.rowsWritten).toBe(2 + 200 + 180);
-    expect(result.setAlarm).toBeLessThanOrEqual(11);
+    // Armed at 60 s; alarms at 60 s and 360 s re-arm (the next, 660 s, is
+    // after the run): 3 setAlarm calls in 10 minutes.
+    expect(result.setAlarm).toBe(3);
     expect(result.billableWrites / result.admissions).toBeLessThan(2);
   }, 60_000);
 });

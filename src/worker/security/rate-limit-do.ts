@@ -19,17 +19,21 @@
  * SQLite, so an evicted or restarted object continues with the same counts.
  *
  * Retention: each row is the expiry time of one admission. An admission
- * schedules the cleanup alarm only when none is scheduled (every scheduled
- * alarm is re-armed or ends in a full cleanup, so one per busy period is
- * enough); the alarm removes expired rows, re-arms itself at the latest
- * remaining expiry, and once none remain deletes the object's storage
- * entirely. An early or repeated alarm only ever removes expired rows, and
- * a lost alarm is re-armed by the next admission. Admission decisions never
- * depend on the alarm: `admitAt` removes expired rows itself.
+ * schedules the cleanup alarm, at its own expiry, only when none is
+ * scheduled. The alarm removes expired rows; if rows remain it re-arms at
+ * the later of the latest expiry and MIN_CLEANUP_INTERVAL_MS from now,
+ * otherwise it deletes the object's storage entirely. So an active counter
+ * runs at most one alarm per interval, and expired rows outlive their
+ * expiry by at most the interval. An early or repeated alarm only ever
+ * removes expired rows; a lost alarm is re-armed by the next admission.
+ * Admission decisions never depend on the alarm: `admitAt` removes
+ * expired rows itself, by timestamp.
  *
  * Cost (billed per row written; `setAlarm` counts as one): an admission is
- * one INSERT plus, later, one DELETE; a refusal writes nothing; alarms add
- * about one `setAlarm` per period while a counter is busy.
+ * one INSERT plus, later, one DELETE; a refusal writes nothing; each alarm
+ * is one request and (unless it ends the counter) one `setAlarm`. A
+ * re-arm needs an admission since the previous alarm, so there are never
+ * more `setAlarm` calls than admissions.
  *
  * Privacy: the object stores expiry times only. Its name is an HMAC of the
  * subject (see rate-limit.ts), never an address or user id.
@@ -47,6 +51,14 @@ const MAX_LIMIT = 1000;
 const MAX_PERIOD_SECONDS = 3600;
 
 const SCHEMA = "CREATE TABLE IF NOT EXISTS admissions (expires_at INTEGER NOT NULL)";
+
+/**
+ * Least time between cleanup alarms of an active counter. Not a
+ * correctness parameter (decisions use timestamps only): it trades alarm
+ * requests (at most 12 per hour per active counter) against how long
+ * expired expiry times may stay stored (at most this long).
+ */
+export const MIN_CLEANUP_INTERVAL_MS = 5 * 60_000;
 
 /**
  * The admission decision against `sql` at time `now` (ms). Exported so tests
@@ -78,15 +90,16 @@ export async function admitAndSchedule(storage: CounterStorage, limit: number, p
 }
 
 /**
- * The alarm's work at time `now` (ms): remove expired admissions; re-arm at
- * the latest remaining expiry, or with none left drop the object's storage.
+ * The alarm's work at time `now` (ms): remove expired admissions; with some
+ * left, re-arm no earlier than their latest expiry and no sooner than
+ * MIN_CLEANUP_INTERVAL_MS; with none left, drop the object's storage.
  */
 export async function cleanupAt(storage: CounterStorage, now: number): Promise<void> {
   storage.sql.exec(SCHEMA);
   storage.sql.exec("DELETE FROM admissions WHERE expires_at <= ?", now);
   const latest = storage.sql.exec<{ latest: number | null }>("SELECT MAX(expires_at) AS latest FROM admissions").one().latest;
   if (latest === null) await storage.deleteAll();
-  else await storage.setAlarm(latest);
+  else await storage.setAlarm(Math.max(latest, now + MIN_CLEANUP_INTERVAL_MS));
 }
 
 export class AuthRateLimiter extends DurableObject<Env> {
@@ -97,7 +110,7 @@ export class AuthRateLimiter extends DurableObject<Env> {
     return admitAndSchedule(this.ctx.storage, limit, periodSeconds, Date.now());
   }
 
-  /** Remove expired admissions; re-arm, or with none left drop the object's storage. */
+  /** Remove expired admissions; re-arm (see cleanupAt), or with none left drop the object's storage. */
   override async alarm(): Promise<void> {
     await cleanupAt(this.ctx.storage, Date.now());
   }
