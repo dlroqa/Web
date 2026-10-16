@@ -184,10 +184,20 @@ export function safeCallbackLocation(location: string | null, publicOrigin: stri
   return { location: `${publicOrigin}${url.pathname}`, error: null };
 }
 
+/**
+ * Sign-in start: request validation → client identity → Turnstile → the
+ * authoritative limit → Better Auth.
+ *
+ * Turnstile comes before the limit so that a request without a valid token
+ * costs no Durable Object request or write; a valid token is single-use and
+ * still has to pass the limit. An unidentifiable client is refused first,
+ * by the limiter itself (which decides that without a counter).
+ */
 async function signInSocial(ctx: RequestContext, s: AuthServices): Promise<Response> {
   const body = parse(SignInSocialBody, await readJson(ctx.request));
   if (!s.providers.includes(body.provider)) throw new ApiError("INVALID_REQUEST", { issues: [{ path: "provider", code: "unavailable" }] });
-  await enforceRateLimit(s.limiter, "login", { kind: "ip", address: clientAddress(ctx) });
+  const address = clientAddress(ctx);
+  if (address === null) await enforceRateLimit(s.limiter, "login", { kind: "ip", address });
 
   const turnstile = await new TurnstileVerifier({
     secret: readSecret(ctx.env, "TURNSTILE_SECRET"),
@@ -196,6 +206,7 @@ async function signInSocial(ctx: RequestContext, s: AuthServices): Promise<Respo
     logger: ctx.logger,
   }).verify({ token: body.turnstileToken, expectedAction: "login", remoteIp: ctx.request.headers.get("cf-connecting-ip") ?? undefined, idempotencyKey: ctx.requestId });
   if (!turnstile.ok) throw new ApiError("TURNSTILE_FAILED", { logReason: `turnstile ${turnstile.reason}` });
+  await enforceRateLimit(s.limiter, "login", { kind: "ip", address });
 
   const upstream = await s.auth.handler(
     rebuild(ctx.request, ctx.url, {

@@ -26,8 +26,10 @@ const permissive = (overrides: Partial<Env> = {}) =>
   testEnv({ RL_LOGIN: approveAll, RL_PASSKEY_LOGIN: approveAll, RL_SIGNUP: approveAll, ...overrides });
 
 let providers: FakeProviders;
+let logLines: string[] = [];
 beforeEach(() => {
-  for (const level of ["log", "info", "warn", "error"] as const) vi.spyOn(console, level).mockImplementation(() => {});
+  logLines = [];
+  for (const level of ["log", "info", "warn", "error"] as const) vi.spyOn(console, level).mockImplementation((line: unknown) => void logLines.push(String(line)));
   providers = new FakeProviders().install();
 });
 afterEach(() => {
@@ -60,25 +62,65 @@ async function codeOf(response: Response): Promise<string> {
   return ((await response.json()) as { error?: { code: string } }).error?.code ?? "OK";
 }
 
+/** The real namespace, counting admission calls (one `getByName` per call). */
+function countingNamespace(): { namespace: DurableObjectNamespace<AuthRateLimiter>; calls: string[] } {
+  const calls: string[] = [];
+  const namespace = {
+    getByName: (name: string) => {
+      calls.push(name);
+      return env.AUTH_RATE_LIMITER.getByName(name);
+    },
+  } as unknown as DurableObjectNamespace<AuthRateLimiter>;
+  return { namespace, calls };
+}
+
+const logged = (event: string) => logLines.some((line) => line.includes(`"${event}"`));
+
 describe("sign-in start (login policy, 20 / 60 s)", () => {
-  it("refuses the 21st attempt from one address even though the binding approves everything", async () => {
+  it("refuses the 21st attempt with a valid token from one address, after Turnstile, before Better Auth", async () => {
+    const ip = freshIp();
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    for (let i = 0; i < 20; i += 1) expect((await startSignIn({ "cf-connecting-ip": ip }, environment)).status).toBe(200);
+    const refused = await startSignIn({ "cf-connecting-ip": ip }, environment);
+    expect(refused.status).toBe(429);
+    expect(await codeOf(refused)).toBe("RATE_LIMITED");
+    const retryAfter = Number(refused.headers.get("retry-after"));
+    expect(retryAfter).toBeGreaterThanOrEqual(1);
+    expect(retryAfter).toBeLessThanOrEqual(60);
+    // Turnstile was verified for every attempt; the limit then refused the
+    // 21st before Better Auth (which would have set the state cookie).
+    expect(siteverifyCalls()).toBe(21);
+    expect(calls).toHaveLength(21);
+    expect(refused.headers.getSetCookie()).toEqual([]);
+  }, 30_000);
+
+  it("an invalid Turnstile token never reaches the Durable Object and uses up no admissions", async () => {
     providers.turnstile = "fail";
     const ip = freshIp();
-    const codes: string[] = [];
-    for (let i = 0; i < 25; i += 1) {
-      const response = await startSignIn({ "cf-connecting-ip": ip });
-      codes.push(await codeOf(response));
-      if (response.status === 429) {
-        const retryAfter = Number(response.headers.get("retry-after"));
-        expect(retryAfter).toBeGreaterThanOrEqual(1);
-        expect(retryAfter).toBeLessThanOrEqual(60);
-      }
-    }
-    expect(codes.slice(0, 20).every((c) => c === "TURNSTILE_FAILED")).toBe(true);
-    expect(codes.slice(20).every((c) => c === "RATE_LIMITED")).toBe(true);
-    // Turnstile is never consulted for a refused attempt.
-    expect(siteverifyCalls()).toBe(20);
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    for (let i = 0; i < 25; i += 1) expect(await codeOf(await startSignIn({ "cf-connecting-ip": ip }, environment))).toBe("TURNSTILE_FAILED");
+    expect(siteverifyCalls()).toBe(25);
+    expect(calls).toHaveLength(0);
+    // The failed attempts consumed nothing: the full allowance remains.
+    providers.turnstile = "pass";
+    for (let i = 0; i < 20; i += 1) expect((await startSignIn({ "cf-connecting-ip": ip }, environment)).status).toBe(200);
+    expect((await startSignIn({ "cf-connecting-ip": ip }, environment)).status).toBe(429);
   }, 30_000);
+
+  it("rejects an invalid request, an unavailable provider or a foreign origin before Turnstile and the Durable Object", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const post = (body: unknown, origin = BASE) =>
+      call("/api/auth/sign-in/social", { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify(body) }, { env: environment });
+    expect((await post({ provider: "google" })).status).toBe(400);
+    expect((await post({ provider: "google", turnstileToken: "t", extra: 1 })).status).toBe(400);
+    expect((await post({ provider: "facebook", turnstileToken: "t" })).status).toBe(400);
+    expect((await post({ provider: "google", turnstileToken: "t" }, "https://evil.example")).status).toBe(403);
+    expect(siteverifyCalls()).toBe(0);
+    expect(calls).toHaveLength(0);
+  });
 
   it("concurrent attempts cannot race past the limit", async () => {
     const ip = freshIp();
@@ -116,10 +158,13 @@ describe("sign-in start (login policy, 20 / 60 s)", () => {
     // No CF-Connecting-IP at all (the test helper would otherwise add one).
     const ctx = createExecutionContext();
     const bare = new Request(`${BASE}/api/auth/sign-in/social`, { method: "POST", headers: { origin: BASE, "content-type": "application/json" }, body: JSON.stringify({ provider: "google", turnstileToken: "invalid" }) });
-    const response = await createWorker({ cspMode: "production" }).fetch(bare, permissive(), ctx);
+    const { namespace, calls } = countingNamespace();
+    const response = await createWorker({ cspMode: "production" }).fetch(bare, permissive({ AUTH_RATE_LIMITER: namespace }), ctx);
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(429);
     expect(siteverifyCalls()).toBe(0);
+    expect(calls).toHaveLength(0);
+    expect(logged("ratelimit.client_unidentified")).toBe(true);
   });
 });
 
@@ -166,27 +211,33 @@ describe("other authentication paths share or have their own authoritative count
 });
 
 describe("when the authoritative limiter is unavailable", () => {
-  const broken = {
-    getByName: () => ({
-      admit: async () => {
-        throw new Error("Durable Object is overloaded");
-      },
-    }),
-  } as unknown as DurableObjectNamespace<AuthRateLimiter>;
+  const throwing = (message: string) =>
+    ({
+      getByName: () => ({
+        admit: async () => {
+          throw new Error(message);
+        },
+      }),
+    }) as unknown as DurableObjectNamespace<AuthRateLimiter>;
 
   it.each([
-    ["throws", { AUTH_RATE_LIMITER: broken }],
-    ["is not bound", { AUTH_RATE_LIMITER: undefined as unknown as DurableObjectNamespace<AuthRateLimiter> }],
-  ])("sign-in and passkey options fail closed when the namespace %s", async (_label, overrides) => {
+    ["throws", { AUTH_RATE_LIMITER: throwing("Durable Object is overloaded") }, "ratelimit.authoritative_failed"],
+    // The shape of a Workers Free daily-quota refusal: fails closed like any other error.
+    ["is over its daily quota", { AUTH_RATE_LIMITER: throwing("Exceeded allowed rows written in Durable Objects free tier.") }, "ratelimit.authoritative_failed"],
+    ["is not bound", { AUTH_RATE_LIMITER: undefined as unknown as DurableObjectNamespace<AuthRateLimiter> }, "ratelimit.authoritative_missing"],
+  ])("sign-in and passkey options fail closed when the namespace %s", async (_label, overrides, event) => {
     const environment = permissive(overrides);
     const rows = await challengeRows();
     const start = await startSignIn({ "cf-connecting-ip": freshIp() }, environment);
     expect(start.status).toBe(429);
     expect(start.headers.get("retry-after")).toBe("60");
+    // Turnstile passed, then the limiter refused: Better Auth was never reached.
+    expect(siteverifyCalls()).toBe(1);
+    expect(start.headers.getSetCookie()).toEqual([]);
     const options = await passkeyOptions({ "cf-connecting-ip": freshIp() }, environment);
     expect(options.status).toBe(429);
-    expect(siteverifyCalls()).toBe(0);
     expect(await challengeRows()).toBe(rows);
+    expect(logged(event)).toBe(true);
   });
 });
 

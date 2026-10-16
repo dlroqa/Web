@@ -237,26 +237,28 @@ describe("rate limiting", () => {
   }, 30_000);
 
   // The live staging finding: every attempt carried an invalid Turnstile
-  // token. The limiter must still refuse, because it runs before Siteverify.
-  it("refuses one client address even when every attempt fails Turnstile, and stops calling Siteverify", async () => {
+  // token. Turnstile refuses each of them itself, before the limiter, so
+  // they cost no limiter (Durable Object) work and use up no admissions.
+  it("refuses every attempt that fails Turnstile, without consuming the client's allowance", async () => {
     providers.turnstile = "fail";
     const ip = "198.51.100.78";
-    const codes: string[] = [];
-    for (let i = 0; i < 25; i += 1) {
-      const response = await call("/api/auth/sign-in/social", {
+    const attempt = () =>
+      call("/api/auth/sign-in/social", {
         method: "POST",
         headers: { origin: BASE, "content-type": "application/json", "cf-connecting-ip": ip },
         body: JSON.stringify({ provider: "google", turnstileToken: "invalid" }),
       });
-      codes.push(((await response.json()) as { error: { code: string } }).error.code);
-      if (response.status === 429) expect(response.headers.get("retry-after")).toBe("60");
+    for (let i = 0; i < 25; i += 1) {
+      const response = await attempt();
+      expect(response.status).toBe(403);
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe("TURNSTILE_FAILED");
     }
-    expect(codes.filter((c) => c === "TURNSTILE_FAILED").length).toBeLessThanOrEqual(20);
-    expect(codes.at(-1)).toBe("RATE_LIMITED");
-    expect(providers.outbound.filter((o) => o.includes("/turnstile/v0/siteverify")).length).toBe(codes.filter((c) => c === "TURNSTILE_FAILED").length);
+    expect(providers.outbound.filter((o) => o.includes("/turnstile/v0/siteverify")).length).toBe(25);
+    providers.turnstile = "pass";
+    expect((await attempt()).status).toBe(200);
   }, 30_000);
 
-  describe("sign-in start ordering: origin → body → login limiter → Turnstile → Better Auth", () => {
+  describe("sign-in start ordering: origin → body → client identity → Turnstile → login limiter → Better Auth", () => {
     function countingLimiter(success: boolean): RateLimit & { keys: string[] } {
       const keys: string[] = [];
       return { keys, limit: async ({ key }) => (keys.push(key), { success }) };
@@ -287,22 +289,22 @@ describe("rate limiting", () => {
       expect(siteverifyCalls()).toBe(0);
     });
 
-    it("a limiter refusal is a 429 and never reaches Siteverify or Better Auth", async () => {
+    it("a limiter refusal after a valid token is a 429 and never reaches Better Auth", async () => {
       const rl = countingLimiter(false);
       const response = await start(rl, {});
       expect(response.status).toBe(429);
       expect(response.headers.get("retry-after")).toBe("60");
       expect(response.headers.getSetCookie()).toEqual([]);
       expect(rl.keys).toEqual(["login:ip:198.51.100.79"]);
-      expect(siteverifyCalls()).toBe(0);
+      expect(siteverifyCalls()).toBe(1);
     });
 
-    it("the limiter is consulted, keyed on the client address, before Turnstile refuses", async () => {
+    it("the limiter is not consulted when Turnstile refuses", async () => {
       providers.turnstile = "fail";
       const rl = countingLimiter(true);
       const response = await start(rl, {});
       expect(((await response.json()) as { error: { code: string } }).error.code).toBe("TURNSTILE_FAILED");
-      expect(rl.keys).toEqual(["login:ip:198.51.100.79"]);
+      expect(rl.keys).toEqual([]);
       expect(siteverifyCalls()).toBe(1);
     });
   });

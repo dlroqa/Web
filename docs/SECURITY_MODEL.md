@@ -263,12 +263,19 @@ route and are not rate limited.
   `X-Forwarded-For` and similar are never read. IPv6 clients are keyed on
   their /64. A missing or malformed address is refused (`429`), not pooled.
 - *Fail closed*: an unidentified client, a missing `AUTH_RATE_LIMITER`
-  binding, or any Durable Object error refuses the request
-  (`429 RATE_LIMITED`, `Retry-After` = period), before Turnstile, Better
-  Auth or any D1 write.
+  binding, or any Durable Object error (including a Workers Free daily
+  quota refusal) refuses the request (`429 RATE_LIMITED`, `Retry-After` =
+  period), before Better Auth or any D1 write. An unidentified client is
+  refused before Turnstile too.
 
-Order on the sign-in start: origin check → body validation → login limiter
-(binding, then Durable Object) → Turnstile → Better Auth. Passkey options
+Order on the sign-in start: origin check → body validation → client
+identity (unidentified: `429`) → Turnstile → login limiter (binding, then
+Durable Object) → Better Auth. Turnstile runs first so that a request
+without a valid token costs no Durable Object request or write and uses up
+none of the client's allowance; a valid token is single-use and still has
+to pass the limit. Requests that fail Turnstile are bounded only by the
+Worker's own request limits; each costs one Siteverify call (5 s timeout,
+bounded response) and nothing else. Passkey options
 and verification, and the OAuth callbacks, are limited before Better Auth
 runs (so no passkey challenge or verification row is written for a refused
 request). The signup limit runs inside session creation, after the OAuth
