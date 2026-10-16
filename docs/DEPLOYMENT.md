@@ -49,7 +49,7 @@ GitHub Actions for Web.
 | Root directory | `/` |
 | Build variables | `CLOUDFLARE_ENV=staging`, `NODE_VERSION=22` |
 | Build command | `npm run ci:cloudflare` |
-| Deploy command | staging guard, then `npx wrangler versions upload --env staging --message "deploy/staging W1"` (upload only; never `wrangler deploy`) |
+| Deploy command | at rest: staging guard, then `npx wrangler deploy --env staging --dry-run`; only for an approved upload: staging guard, then `npx wrangler versions upload --env staging --message "…"` (never `wrangler deploy` without `--dry-run`) |
 
 `npm run ci:cloudflare` runs, failing at the first error:
 
@@ -76,8 +76,10 @@ from the connected Worker (`WRANGLER_CI_OVERRIDE_NAME`), so the guard is what
 stops a non-staging build from reaching it. The dashboard field has a length
 limit (about 512 characters): keep the command compact.
 
-Every push to `deploy/staging` therefore **uploads an inactive version**. It
-never changes traffic. Activation is a separate, approved, manual step:
+At rest, a push to `deploy/staging` only validates (dry run). During an
+approved upload window it **uploads an inactive version** and never changes
+traffic; the deploy command goes back to the dry run straight after.
+Activation is a separate, approved, manual step:
 
 ```sh
 npx wrangler versions deploy <version-id>@100% --name lightagent-control-staging --message "<approval reference>" --yes
@@ -450,7 +452,7 @@ against staging. `suspend`/`disable` revoke Web-side agent profiles, and
 `reactivate` does not restore them. Lightagent-side revocation is not
 implemented (W2).
 
-### 2026-10-15: Authoritative rate limiter (implemented; not deployed)
+### 2026-10-15: Authoritative rate limiter (carrier live; implementation uploaded inactive)
 
 The login rate-limit finding: the Workers Rate Limiting bindings on staging
 never refused (controlled test from one IP at SJC: 25/25 sign-in starts with
@@ -463,7 +465,8 @@ Fix: SQLite-backed Durable Object counters (`AuthRateLimiter`, binding
 `AUTH_RATE_LIMITER`) decide `login`, `passkey_login` and `signup`; see
 [SECURITY_MODEL.md](SECURITY_MODEL.md#rate-limiting). `wrangler.jsonc`
 declares the binding and migration for development, staging and
-production; nothing has been deployed. Staging still runs W1 `91dc87aa`.
+production. As of this section (2026-10-15) nothing was deployed; see the
+C2 and U1 records below.
 
 Hosted validation (no upload): Workers Builds build
 `7b9b69c0-3d49-4562-a31e-c52b911febff` on `deploy/staging` = `f6ab94b`, deploy
@@ -554,3 +557,51 @@ Carrier failure (fix forward; no rollback to W1 exists):
 Then, separately approved: implementation upload (`f6ab94b`, inactive),
 promotion with `versions deploy <id>@100%`, the controlled 21-attempt
 check, and rollback = `versions deploy <carrier-id>@100%`.
+
+#### 2026-10-16: C2 carrier deployed (signed off)
+
+Builds `16e805f6-c412-4cb8-bffc-b5828638c31c` (retry of C1 build `f4fa1a48`
+with `--deploy`) on `deploy/staging-carrier` = `91c9f65`: version
+`7750a63c-fd3d-424e-a2c7-feb062cd4633` at 100% (deployment
+`d2b7c623-53af-4cf2-b756-6e6f17e0678b`, 00:40:40Z). Migration
+`v1-auth-rate-limiter` applied; namespace `AuthRateLimiter` (SQLite) with no
+objects. D1 bookmark before: `00000046-00000000-00005105-d03ac6be2e4b4743f661cc70002af4f5`.
+Builds settings restored (C3). Smoke test: 18/18 HTTP checks, 0 CSP
+violations, D1 unchanged, 0 Durable Object calls; operator: 0 CSP
+violations in authenticated use, session cookie `HttpOnly; Secure;
+SameSite=Strict; Path=/api`, Google sign-in, account pages, logout.
+
+**Staging rollback baseline: `7750a63c`.** `91dc87aa`, `fd978898` and older
+can no longer be rolled back to.
+
+#### 2026-10-16: U1 implementation uploaded inactive (closed)
+
+Deploy command switched to the guard + `npx wrangler versions upload --env
+staging --message "f6ab94b DO limiter"` (459 characters; checked byte for
+byte), then **Retry** of hosted validation build `7b9b69c0` on
+`deploy/staging` = `f6ab94b`: Builds `64136c60`.
+
+| | |
+|---|---|
+| Implementation version | `0fbd01ba-e5cd-44b5-9513-6c85c723c7e4` (#22, 02:39:02Z, message `f6ab94b DO limiter`), **0%** |
+| Active version | carrier `7750a63c-fd3d-424e-a2c7-feb062cd4633`, **100%** (deployment `d2b7c623` unchanged) |
+| Bundle | all 11 uploaded modules equal a local `CLOUDFLARE_ENV=staging` build of `f6ab94b` (ignoring `//#region` source paths) |
+| Bindings | staging `DB` `3cc0724d-…`, `AUTH_RATE_LIMITER` → `AuthRateLimiter`, `RL_*` 2001–2007, existing secrets; migration tag still `v1-auth-rate-limiter` |
+| Durable Objects | 0 objects (no request reaches the new limiter) |
+| Preview URLs | `previews_enabled: false`; version and `deploy-staging` alias hostnames 404 |
+| D1 / production | no pending migrations; no production Worker |
+
+The pipeline passed (the upload runs only after `ci:cloudflare` and the
+guard succeed); the Builds `64136c60` log was not reviewed, so its r4 digest
+and test counts are not recorded here (hosted validation of the same commit,
+`7b9b69c0`: r4 verified, 44 files / 1037 tests, 11 build tests).
+
+Settings restored (R1): deploy command back to the guard + `npx wrangler
+deploy --env staging --dry-run` (429 characters; checked byte for byte),
+production branch `deploy/staging`, build command `npm run ci:cloudflare`,
+`CLOUDFLARE_ENV=staging`, `NODE_VERSION=22`, Builds for Preview branches off.
+
+Next, separately approved (P1): `npx wrangler versions deploy
+0fbd01ba-e5cd-44b5-9513-6c85c723c7e4@100% --name lightagent-control-staging
+--message "<approval reference>" --yes`, from a staging build of `f6ab94b`;
+rollback: the same with `7750a63c-fd3d-424e-a2c7-feb062cd4633@100%`.
