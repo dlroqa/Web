@@ -279,12 +279,54 @@ describe("storage writes (measured with SQLite's own row counts)", () => {
     // Every admission is one INSERT and one DELETE; each counter lifetime
     // (ended by deleteAll) adds the 2-row CREATE TABLE.
     expect(result.rowsWritten).toBe(2 * result.admissions + 2 * result.deleteAll);
-    // Alarms: about one per period while busy, never one per admission.
-    expect(result.setAlarm).toBeLessThanOrEqual(Math.ceil(DURATION / (PERIOD * 1000)) + 2 * result.deleteAll + 1);
-    // Each setAlarm is either an alarm re-arming itself or the first
-    // admission of a counter lifetime; admissions in between schedule none.
-    // (Before F1 every admission called setAlarm.)
-    expect(result.setAlarm).toBeLessThanOrEqual(result.alarms + result.deleteAll + 1);
+    // Every alarm either re-arms (one setAlarm) or ends a lifetime with
+    // deleteAll; every lifetime starts with one setAlarm by its first
+    // admission. With all lifetimes ended, setAlarm calls = alarms run.
+    expect(result.setAlarm).toBe(result.alarms);
+    // A re-arm needs an admission since the alarm was set, so there are
+    // never more setAlarm calls than admissions: never more writes than
+    // before F1 (one setAlarm per admission), whatever the traffic.
+    expect(result.setAlarm).toBeLessThanOrEqual(result.admissions);
+  }, 60_000);
+
+  // Steady traffic, one request every `gap` seconds against 20 / 60 s, for
+  // 15 minutes, then idle. Exact counts, worked out by hand, with the
+  // pre-F1 scheme (setAlarm on every admission, the alarm only firing once
+  // the counter is idle) for comparison:
+  //
+  //   gap 45 s (20 admissions, one lifetime): rowsWritten 42, setAlarm 20,
+  //     alarms 20. Before F1: rowsWritten 42, setAlarm 20, alarms 1.
+  //     Same writes; one more alarm (Durable Object request) per admission.
+  //   gap 90 s (10 admissions, a lifetime each): rowsWritten 40,
+  //     setAlarm 10, alarms 10, deleteAll 10. Same as before F1.
+  it.each([
+    [45, { admissions: 20, rowsWritten: 42, setAlarm: 20, alarms: 20, deleteAll: 1 }],
+    [90, { admissions: 10, rowsWritten: 40, setAlarm: 10, alarms: 10, deleteAll: 10 }],
+  ])("sparse traffic (one request every %i s): exact writes and alarms", async (gap, expected) => {
+    const stub = counter();
+    const result = await runInDurableObject(stub, async (_i, state) => {
+      const { storage, meter } = metered(state.storage);
+      const reference = referenceLimiter(20, 60);
+      let alarms = 0;
+      let admissions = 0;
+      const runDueAlarm = async (at: number) => {
+        const due = await state.storage.getAlarm();
+        if (due !== null && due <= at) {
+          alarms += 1;
+          await cleanupAt(storage, due);
+        }
+      };
+      for (let now = BASE_TIME; now < BASE_TIME + 15 * 60_000; now += gap * 1000) {
+        await runDueAlarm(now);
+        const decision = await admitAndSchedule(storage, 20, 60, now);
+        expect(decision).toEqual(reference(now));
+        if (decision.allowed) admissions += 1;
+      }
+      for (let i = 0; i < 10 && (await state.storage.getAlarm()) !== null; i += 1) await runDueAlarm(Number.MAX_SAFE_INTEGER);
+      const { rowsWritten, setAlarm, deleteAll } = meter();
+      return { admissions, rowsWritten, setAlarm, alarms, deleteAll };
+    });
+    expect(result).toEqual(expected);
   }, 60_000);
 
   it("a counter busy at its limit costs about two billable writes per admission (before F1: about three)", async () => {

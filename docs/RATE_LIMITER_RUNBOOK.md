@@ -48,9 +48,16 @@ the Free limits.
   Turnstile token (M1). OAuth callbacks reach it only with a `state` and the
   state cookie (M2). Passkey options and verification reach it without
   Turnstile (M3, before public production).
-- Each Durable Object call is one request; a refusal writes nothing; an
-  admission is about 2 billable writes (M4). Each counter that goes idle
-  adds one alarm request and its cleanup.
+- Each Durable Object call is one request; a refusal writes nothing. An
+  admission costs 2 to 3 billable writes (under 2 for a counter busy at
+  its limit, the abusive case; 3 for slow traffic, as before F1). Each
+  alarm is one more request: about one per period for a busy counter, up
+  to one per admission for traffic every 30–60 s, one per lifetime for
+  slower traffic. Writes per admission always exceed requests per
+  admission, so on Free the rows-written allowance is still the one that
+  runs out first. On Paid the worst case (traffic every 30–60 s) costs
+  about 5% more than before F1 (one extra request, $0.15/M, per
+  admission); a busy counter costs about a third less.
 - A client rotating IP addresses creates a new counter per address (up to
   about 2 Durable Object requests and 5 writes per first request). Rough
   Free-plan reach: about 50,000 such requests exhaust the Durable Object

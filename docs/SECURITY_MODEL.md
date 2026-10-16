@@ -258,9 +258,14 @@ route and are not rate limited.
 - *Storage writes* (measured in tests with SQLite's own row counts): an
   admission is one INSERT and, after expiry, one DELETE; a refusal writes
   nothing; a new counter's table costs 2 rows; `setAlarm` (billed as one
-  row written) runs about once per period while a counter is busy, not per
-  admission. A counter busy at its limit costs under 2 billable writes per
-  admission (about 3 before F1). The billing of `deleteAll` is not
+  row written) runs once per alarm, and never more often than once per
+  admission (before F1: once per admission). Depends on the traffic: a
+  counter busy at its limit costs under 2 billable writes per admission
+  (about 3 before F1), with about one alarm per period; one request every
+  30–60 s costs the same writes as before F1 but up to one extra alarm
+  (one Durable Object request) per admission; one request per period or
+  slower is unchanged. Writes, the first Workers Free quota to run out,
+  are never higher than before F1. The billing of `deleteAll` is not
   measurable locally.
 - *Keys*: object name `rl1:<environment>:<policy>:<kind>:<HMAC>`; the HMAC
   covers policy, kind and value under a key derived from
