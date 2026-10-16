@@ -96,6 +96,43 @@ describe("generated Wrangler configuration", () => {
     if (vars.ENVIRONMENT === "development") expect(preview_urls).toBeUndefined();
     else expect(preview_urls).toBe(false);
   });
+
+  // The staging build (Workers Builds, CLOUDFLARE_ENV=staging) is what the
+  // dry run and any approved upload use: pin its identity, bindings and
+  // Durable Object migration list, so a change to any of them fails CI.
+  it("a staging build targets the staging Worker, D1 and Durable Object, with no new migration", () => {
+    const generated = JSON.parse(readFileSync("dist/lightagent_control/wrangler.json", "utf8")) as {
+      name: string;
+      preview_urls?: boolean;
+      vars: Record<string, string>;
+      d1_databases: { binding: string; database_name: string; database_id: string }[];
+      durable_objects: { bindings: { name: string; class_name: string }[] };
+      migrations: unknown[];
+    };
+    if (generated.vars.ENVIRONMENT !== "staging") return;
+    expect(generated.name).toBe("lightagent-control-staging");
+    expect(generated.preview_urls).toBe(false);
+    const host = "lightagent-control-staging.eddelaroca.workers.dev";
+    expect(generated.vars).toMatchObject({
+      ENVIRONMENT: "staging",
+      TRUSTED_ORIGINS: `https://${host}`,
+      PUBLIC_ORIGIN: `https://${host}`,
+      PASSKEY_RP_ID: host,
+      TURNSTILE_EXPECTED_HOSTNAMES: host,
+      SIGNUP_POLICY: "approval",
+      HSTS_MAX_AGE: "0",
+    });
+    expect(generated.d1_databases).toHaveLength(1);
+    expect(generated.d1_databases[0]).toMatchObject({ binding: "DB", database_name: "lightagent-control-staging", database_id: "3cc0724d-fb83-4477-ac0f-5aee58606fdf" });
+    expect(generated.durable_objects.bindings).toHaveLength(1);
+    expect(generated.durable_objects.bindings[0]).toMatchObject({ name: "AUTH_RATE_LIMITER", class_name: "AuthRateLimiter" });
+    // Exactly the migration already applied to staging by the carrier (7750a63c).
+    expect(generated.migrations).toEqual([{ tag: "v1-auth-rate-limiter", new_sqlite_classes: ["AuthRateLimiter"] }]);
+    console.log(
+      `staging build config verified: ${generated.name}, DB ${generated.d1_databases[0]?.database_id}, ` +
+        `AUTH_RATE_LIMITER -> AuthRateLimiter, migrations [v1-auth-rate-limiter], preview_urls false`,
+    );
+  });
 });
 
 describe("worker bundle", () => {
