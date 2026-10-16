@@ -18,10 +18,18 @@
  * Durability: there is no in-memory state; every decision is made from
  * SQLite, so an evicted or restarted object continues with the same counts.
  *
- * Retention: each row is the expiry time of one admission. Each admission
- * moves the alarm to the latest expiry (never earlier); the alarm removes
- * expired rows and, once none remain, deletes the object's storage
- * entirely. An early or repeated alarm only ever removes expired rows.
+ * Retention: each row is the expiry time of one admission. An admission
+ * schedules the cleanup alarm only when none is scheduled (every scheduled
+ * alarm is re-armed or ends in a full cleanup, so one per busy period is
+ * enough); the alarm removes expired rows, re-arms itself at the latest
+ * remaining expiry, and once none remain deletes the object's storage
+ * entirely. An early or repeated alarm only ever removes expired rows, and
+ * a lost alarm is re-armed by the next admission. Admission decisions never
+ * depend on the alarm: `admitAt` removes expired rows itself.
+ *
+ * Cost (billed per row written; `setAlarm` counts as one): an admission is
+ * one INSERT plus, later, one DELETE; a refusal writes nothing; alarms add
+ * about one `setAlarm` per period while a counter is busy.
  *
  * Privacy: the object stores expiry times only. Its name is an HMAC of the
  * subject (see rate-limit.ts), never an address or user id.
@@ -56,29 +64,41 @@ export function admitAt(sql: SqlStorage, limit: number, periodSeconds: number, n
   return { allowed: true, retryAfterSeconds: 0 };
 }
 
+/** The storage an admission and its cleanup use (a Durable Object's own storage). */
+export type CounterStorage = Pick<DurableObjectStorage, "sql" | "getAlarm" | "setAlarm" | "deleteAll">;
+
+/**
+ * One admission decision at time `now` (ms), and the cleanup alarm if none
+ * is scheduled. Exported so tests can drive it with a fixed clock.
+ */
+export async function admitAndSchedule(storage: CounterStorage, limit: number, periodSeconds: number, now: number): Promise<Admission> {
+  const decision = admitAt(storage.sql, limit, periodSeconds, now);
+  if (decision.allowed && (await storage.getAlarm()) === null) await storage.setAlarm(now + periodSeconds * 1000);
+  return decision;
+}
+
+/**
+ * The alarm's work at time `now` (ms): remove expired admissions; re-arm at
+ * the latest remaining expiry, or with none left drop the object's storage.
+ */
+export async function cleanupAt(storage: CounterStorage, now: number): Promise<void> {
+  storage.sql.exec(SCHEMA);
+  storage.sql.exec("DELETE FROM admissions WHERE expires_at <= ?", now);
+  const latest = storage.sql.exec<{ latest: number | null }>("SELECT MAX(expires_at) AS latest FROM admissions").one().latest;
+  if (latest === null) await storage.deleteAll();
+  else await storage.setAlarm(latest);
+}
+
 export class AuthRateLimiter extends DurableObject<Env> {
   /** One admission decision for this counter. */
   async admit(limit: number, periodSeconds: number): Promise<Admission> {
     if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) throw new RangeError("invalid limit");
     if (!Number.isInteger(periodSeconds) || periodSeconds < 1 || periodSeconds > MAX_PERIOD_SECONDS) throw new RangeError("invalid period");
-    const now = Date.now();
-    const decision = admitAt(this.ctx.storage.sql, limit, periodSeconds, now);
-    if (decision.allowed) {
-      // Never move the cleanup earlier than an existing admission's expiry.
-      const expiry = now + periodSeconds * 1000;
-      const scheduled = await this.ctx.storage.getAlarm();
-      if (scheduled === null || scheduled < expiry) await this.ctx.storage.setAlarm(expiry);
-    }
-    return decision;
+    return admitAndSchedule(this.ctx.storage, limit, periodSeconds, Date.now());
   }
 
-  /** Remove expired admissions; with none left, drop the object's storage. */
+  /** Remove expired admissions; re-arm, or with none left drop the object's storage. */
   override async alarm(): Promise<void> {
-    const sql = this.ctx.storage.sql;
-    sql.exec(SCHEMA);
-    sql.exec("DELETE FROM admissions WHERE expires_at <= ?", Date.now());
-    const latest = sql.exec<{ latest: number | null }>("SELECT MAX(expires_at) AS latest FROM admissions").one().latest;
-    if (latest === null) await this.ctx.storage.deleteAll();
-    else await this.ctx.storage.setAlarm(latest);
+    await cleanupAt(this.ctx.storage, Date.now());
   }
 }

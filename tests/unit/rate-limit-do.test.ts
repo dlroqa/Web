@@ -1,6 +1,6 @@
 import { env, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { admitAt, type AuthRateLimiter } from "../../src/worker/security/rate-limit-do";
+import { admitAndSchedule, admitAt, cleanupAt, type AuthRateLimiter, type CounterStorage } from "../../src/worker/security/rate-limit-do";
 import { randomId } from "../../src/worker/utils/random";
 
 const T0 = Date.UTC(2026, 9, 15, 12, 0, 0);
@@ -18,6 +18,56 @@ const rows = (stub: DurableObjectStub<AuthRateLimiter>) =>
     const table = state.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'admissions'").one().n;
     return table === 0 ? null : state.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM admissions").one().n;
   });
+
+const alarmOf = (stub: DurableObjectStub<AuthRateLimiter>) => runInDurableObject(stub, (_i, state) => state.storage.getAlarm());
+
+/**
+ * The object's real storage, metered: SQL rows written as SQLite reports
+ * them (each cursor's `rowsWritten`), and `setAlarm` / `deleteAll` calls.
+ * Cloudflare bills `setAlarm` as one row written; `deleteAll` is counted
+ * here but its billing cannot be measured locally.
+ */
+function metered(storage: DurableObjectStorage) {
+  const cursors: { rowsWritten: number }[] = [];
+  const calls = { setAlarm: 0, deleteAll: 0 };
+  const counted: CounterStorage = {
+    sql: {
+      exec: (query: string, ...bindings: SqlStorageValue[]) => {
+        const cursor = storage.sql.exec(query, ...bindings);
+        cursors.push(cursor);
+        return cursor;
+      },
+    } as unknown as SqlStorage,
+    getAlarm: (options) => storage.getAlarm(options),
+    setAlarm: (time, options) => ((calls.setAlarm += 1), storage.setAlarm(time, options)),
+    deleteAll: (options) => ((calls.deleteAll += 1), storage.deleteAll(options)),
+  };
+  const meter = () => {
+    const rowsWritten = cursors.reduce((n, c) => n + c.rowsWritten, 0);
+    return { rowsWritten, setAlarm: calls.setAlarm, deleteAll: calls.deleteAll, billableWrites: rowsWritten + calls.setAlarm };
+  };
+  return { storage: counted, meter };
+}
+
+/** An in-memory sliding log: the specification `admitAt` must match exactly. */
+function referenceLimiter(limit: number, periodSeconds: number) {
+  const expiries: number[] = [];
+  return (now: number) => {
+    const live = expiries.filter((e) => e > now);
+    expiries.splice(0, expiries.length, ...live);
+    if (live.length >= limit) {
+      return { allowed: false, retryAfterSeconds: Math.min(periodSeconds, Math.max(1, Math.ceil((Math.min(...live) - now) / 1000))) };
+    }
+    expiries.push(now + periodSeconds * 1000);
+    return { allowed: true, retryAfterSeconds: 0 };
+  };
+}
+
+/** Deterministic pseudo-random steps (LCG), so a failing run can be replayed. */
+function steps(seed: number) {
+  let x = seed;
+  return (max: number) => ((x = (x * 1103515245 + 12345) % 2 ** 31), x % (max + 1));
+}
 
 describe("admitAt (rolling window, fixed clock)", () => {
   it("admits exactly `limit` requests, then refuses with the time until a slot frees", async () => {
@@ -79,21 +129,62 @@ describe("AuthRateLimiter object", () => {
   it("schedules cleanup; an early alarm keeps live admissions, an expired one deletes everything", async () => {
     const stub = counter();
     await stub.admit(5, 60);
-    const scheduled = await runInDurableObject(stub, (_i, state) => state.storage.getAlarm());
+    const scheduled = await alarmOf(stub);
     expect(scheduled).toBeGreaterThan(Date.now() + 50_000);
 
     // The test helper runs the alarm now, before the admission has expired.
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     expect(await rows(stub)).toBe(1);
-    expect(await runInDurableObject(stub, (_i, state) => state.storage.getAlarm())).toBe(scheduled);
+    expect(await alarmOf(stub)).toBe(scheduled);
 
     // Once every admission has expired, the alarm removes the object's storage.
     await runInDurableObject(stub, (_i, state) => state.storage.sql.exec("UPDATE admissions SET expires_at = 0"));
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     expect(await rows(stub)).toBeNull();
-    expect(await runInDurableObject(stub, (_i, state) => state.storage.getAlarm())).toBeNull();
+    expect(await alarmOf(stub)).toBeNull();
     // …and the counter works again afterwards.
     expect((await stub.admit(5, 60)).allowed).toBe(true);
+    expect(await alarmOf(stub)).not.toBeNull();
+  });
+
+  it("schedules one alarm per busy period, not one per admission", async () => {
+    const stub = counter();
+    await stub.admit(5, 60);
+    const first = await alarmOf(stub);
+    for (let i = 0; i < 4; i += 1) await stub.admit(5, 60);
+    expect(await alarmOf(stub)).toBe(first);
+    expect(await rows(stub)).toBe(5);
+    // When it fires, the alarm re-arms at the latest admission's expiry.
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    const latest = await runInDurableObject(stub, (_i, state) => state.storage.sql.exec<{ m: number }>("SELECT MAX(expires_at) AS m FROM admissions").one().m);
+    expect(await alarmOf(stub)).toBe(latest);
+  });
+
+  it("keeps its alarm across eviction, and the alarm still cleans up afterwards", async () => {
+    const stub = counter();
+    await stub.admit(5, 60);
+    const scheduled = await alarmOf(stub);
+    await evictDurableObject(stub);
+    expect(await alarmOf(stub)).toBe(scheduled);
+    expect(await rows(stub)).toBe(1);
+    await runInDurableObject(stub, (_i, state) => state.storage.sql.exec("UPDATE admissions SET expires_at = 0"));
+    await evictDurableObject(stub);
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    expect(await rows(stub)).toBeNull();
+  });
+
+  it("re-arms a lost alarm on the next admission; decisions never depend on the alarm", async () => {
+    const stub = counter();
+    for (let i = 0; i < 3; i += 1) await stub.admit(3, 60);
+    await runInDurableObject(stub, (_i, state) => state.storage.deleteAlarm());
+    expect(await alarmOf(stub)).toBeNull();
+    // Without an alarm the limit still holds (admitAt removes expired rows itself)…
+    expect((await stub.admit(3, 60)).allowed).toBe(false);
+    expect(await alarmOf(stub)).toBeNull(); // a refusal schedules nothing
+    // …and the next admission re-arms cleanup.
+    await runInDurableObject(stub, (_i, state) => state.storage.sql.exec("UPDATE admissions SET expires_at = 0"));
+    expect((await stub.admit(3, 60)).allowed).toBe(true);
+    expect(await alarmOf(stub)).not.toBeNull();
   });
 
   it("stores no identifier, only expiry times", async () => {
@@ -111,4 +202,110 @@ describe("AuthRateLimiter object", () => {
       await expect(runInDurableObject(stub, (instance) => instance.admit(limit, period))).rejects.toThrow(/invalid/);
     }
   });
+});
+
+describe("storage writes (measured with SQLite's own row counts)", () => {
+  // Far enough ahead that no alarm scheduled by these tests fires on its own.
+  const BASE_TIME = Date.now() + 86_400_000;
+
+  it("a refusal writes nothing and schedules nothing", async () => {
+    const stub = counter();
+    const result = await runInDurableObject(stub, async (_i, state) => {
+      for (let i = 0; i < 3; i += 1) await admitAndSchedule(state.storage, 3, 60, BASE_TIME + i);
+      const { storage, meter } = metered(state.storage);
+      for (let i = 0; i < 50; i += 1) expect((await admitAndSchedule(storage, 3, 60, BASE_TIME + 1000 + i)).allowed).toBe(false);
+      return meter();
+    });
+    expect(result).toEqual({ rowsWritten: 0, setAlarm: 0, deleteAll: 0, billableWrites: 0 });
+  });
+
+  it("an admission is one INSERT (plus the alarm only when none is scheduled); its expiry is one DELETE", async () => {
+    const stub = counter();
+    const [fresh, busy, expired] = await runInDurableObject(stub, async (_i, state) => {
+      const first = metered(state.storage);
+      await admitAndSchedule(first.storage, 20, 60, BASE_TIME);
+      const second = metered(state.storage);
+      await admitAndSchedule(second.storage, 20, 60, BASE_TIME + 1000);
+      const third = metered(state.storage);
+      await admitAndSchedule(third.storage, 20, 60, BASE_TIME + 61_000); // the first two have expired
+      return [first.meter(), second.meter(), third.meter()];
+    });
+    // A new counter: CREATE TABLE (2 rows of schema) + INSERT, and the alarm.
+    expect(fresh).toEqual({ rowsWritten: 3, setAlarm: 1, deleteAll: 0, billableWrites: 4 });
+    expect(busy).toEqual({ rowsWritten: 1, setAlarm: 0, deleteAll: 0, billableWrites: 1 });
+    expect(expired).toEqual({ rowsWritten: 3, setAlarm: 0, deleteAll: 0, billableWrites: 3 });
+  });
+
+  it.each([
+    ["paced at the limit (one request per second)", 1, 1000, 1000],
+    ["irregular bursts, overlapping windows", 7, 0, 4000],
+    ["slow, with idle gaps longer than the period", 11, 2000, 90_000],
+  ])("matches the exact sliding window and stays within the write budget: %s", async (_label, seed, minStep, maxStep) => {
+    const LIMIT = 20;
+    const PERIOD = 60;
+    const DURATION = 15 * 60_000;
+    const stub = counter();
+    const result = await runInDurableObject(stub, async (_i, state) => {
+      const { storage, meter } = metered(state.storage);
+      const reference = referenceLimiter(LIMIT, PERIOD);
+      const next = steps(seed);
+      let now = BASE_TIME;
+      let admissions = 0;
+      let refusals = 0;
+      let alarms = 0;
+      const runDueAlarm = async (at: number) => {
+        const due = await state.storage.getAlarm();
+        if (due !== null && due <= at) {
+          alarms += 1;
+          await cleanupAt(storage, due);
+        }
+      };
+      while (now < BASE_TIME + DURATION) {
+        await runDueAlarm(now);
+        const decision = await admitAndSchedule(storage, LIMIT, PERIOD, now);
+        expect(decision).toEqual(reference(now));
+        if (decision.allowed) admissions += 1;
+        else refusals += 1;
+        now += minStep + next(maxStep - minStep);
+      }
+      // Then idle until the alarms have removed everything.
+      for (let i = 0; i < 10 && (await state.storage.getAlarm()) !== null; i += 1) await runDueAlarm(Number.MAX_SAFE_INTEGER);
+      const left = state.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'admissions'").one().n;
+      return { ...meter(), admissions, refusals, alarms, alarmLeft: await state.storage.getAlarm(), tableLeft: left };
+    });
+    expect(result.admissions).toBeGreaterThan(0);
+    expect(result.alarmLeft).toBeNull();
+    expect(result.tableLeft).toBe(0);
+    // Every admission is one INSERT and one DELETE; each counter lifetime
+    // (ended by deleteAll) adds the 2-row CREATE TABLE.
+    expect(result.rowsWritten).toBe(2 * result.admissions + 2 * result.deleteAll);
+    // Alarms: about one per period while busy, never one per admission.
+    expect(result.setAlarm).toBeLessThanOrEqual(Math.ceil(DURATION / (PERIOD * 1000)) + 2 * result.deleteAll + 1);
+    // Each setAlarm is either an alarm re-arming itself or the first
+    // admission of a counter lifetime; admissions in between schedule none.
+    // (Before F1 every admission called setAlarm.)
+    expect(result.setAlarm).toBeLessThanOrEqual(result.alarms + result.deleteAll + 1);
+  }, 60_000);
+
+  it("a counter busy at its limit costs about two billable writes per admission (before F1: about three)", async () => {
+    const stub = counter();
+    const result = await runInDurableObject(stub, async (_i, state) => {
+      const { storage, meter } = metered(state.storage);
+      let now = BASE_TIME;
+      let admissions = 0;
+      // One request per second for 10 minutes against 20 / 60 s: 200 admissions.
+      for (let i = 0; i < 600; i += 1, now += 1000) {
+        const due = await state.storage.getAlarm();
+        if (due !== null && due <= now) await cleanupAt(storage, due);
+        if ((await admitAndSchedule(storage, 20, 60, now)).allowed) admissions += 1;
+      }
+      return { ...meter(), admissions };
+    });
+    expect(result.admissions).toBe(200);
+    expect(result.deleteAll).toBe(0);
+    // 2 (CREATE TABLE) + 200 INSERT + the DELETEs of the 180 already expired.
+    expect(result.rowsWritten).toBe(2 + 200 + 180);
+    expect(result.setAlarm).toBeLessThanOrEqual(11);
+    expect(result.billableWrites / result.admissions).toBeLessThan(2);
+  }, 60_000);
 });

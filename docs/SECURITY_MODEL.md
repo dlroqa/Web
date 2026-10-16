@@ -251,7 +251,17 @@ route and are not rate limited.
   Durable Object event; concurrent requests for one key are serialized.
 - *Durability*: no in-memory state; counts survive eviction and restarts.
 - *Retention*: rows are expiry times (at most `limit` per counter); an alarm
-  removes expired rows and deletes the object's storage once empty.
+  removes expired rows, re-arms at the latest remaining expiry, and deletes
+  the object's storage once empty. An admission schedules the alarm only
+  when none is scheduled (a lost alarm is re-armed by the next admission;
+  decisions never depend on it).
+- *Storage writes* (measured in tests with SQLite's own row counts): an
+  admission is one INSERT and, after expiry, one DELETE; a refusal writes
+  nothing; a new counter's table costs 2 rows; `setAlarm` (billed as one
+  row written) runs about once per period while a counter is busy, not per
+  admission. A counter busy at its limit costs under 2 billable writes per
+  admission (about 3 before F1). The billing of `deleteAll` is not
+  measurable locally.
 - *Keys*: object name `rl1:<environment>:<policy>:<kind>:<HMAC>`; the HMAC
   covers policy, kind and value under a key derived from
   `BETTER_AUTH_SECRET` (domain-separated), so names never contain an address
