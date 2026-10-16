@@ -17,7 +17,7 @@ import { AuthoritativeRateLimiter, CloudflareRateLimiter } from "../../src/worke
 import type { AuthRateLimiter } from "../../src/worker/security/rate-limit-do";
 import { createLogger } from "../../src/worker/utils/log";
 import { randomId } from "../../src/worker/utils/random";
-import { FakeProviders, identity, signIn } from "../helpers/auth";
+import { FakeProviders, identity, signIn, type Identity } from "../helpers/auth";
 import { CookieJar } from "../helpers/cookies";
 import { BASE, call, testEnv } from "../helpers/worker";
 
@@ -57,6 +57,26 @@ function startSignIn(headers: Record<string, string>, environment: Env = permiss
 
 const passkeyOptions = (headers: Record<string, string>, environment: Env = permissive()) =>
   call("/api/auth/passkey/generate-authenticate-options", { headers }, { env: environment });
+
+/** Start an OAuth sign-in in `jar` and register a provider code for it; the callback is left to the test. */
+async function startFlow(who: Identity, jar: CookieJar, environment: Env, ip?: string): Promise<{ state: string; code: string }> {
+  const start = await call(
+    "/api/auth/sign-in/social",
+    {
+      method: "POST",
+      headers: { origin: BASE, "content-type": "application/json", cookie: jar.header(), ...(ip ? { "cf-connecting-ip": ip } : {}) },
+      body: JSON.stringify({ provider: who.provider, turnstileToken: "t" }),
+    },
+    { env: environment },
+  );
+  jar.store(start);
+  expect(start.status).toBe(200);
+  const url = new URL(((await start.json()) as { data: { url: string } }).data.url);
+  const code = randomId("code");
+  const nonce = url.searchParams.get("nonce") ?? undefined;
+  providers.codes.set(code, { ...who, ...(nonce ? { nonce } : {}) });
+  return { state: url.searchParams.get("state") ?? "", code };
+}
 
 async function codeOf(response: Response): Promise<string> {
   return ((await response.json()) as { error?: { code: string } }).error?.code ?? "OK";
@@ -171,9 +191,11 @@ describe("sign-in start (login policy, 20 / 60 s)", () => {
 describe("other authentication paths share or have their own authoritative counters", () => {
   it("the OAuth callback shares the login counter and is refused before Better Auth", async () => {
     const ip = freshIp();
-    for (let i = 0; i < 20; i += 1) await startSignIn({ "cf-connecting-ip": ip });
+    const jar = new CookieJar();
+    const flow = await startFlow(identity("google"), jar, permissive(), ip);
+    for (let i = 0; i < 19; i += 1) await startSignIn({ "cf-connecting-ip": ip });
     const before = providerCalls();
-    const callback = await call("/api/auth/callback/google?code=c&state=s", { headers: { "cf-connecting-ip": ip } }, { env: permissive() });
+    const callback = await call(`/api/auth/callback/google?code=${flow.code}&state=${flow.state}`, { headers: { "cf-connecting-ip": ip, cookie: jar.header() } }, { env: permissive() });
     expect(callback.status).toBe(429);
     expect(providerCalls()).toBe(before);
   }, 30_000);
@@ -207,6 +229,95 @@ describe("other authentication paths share or have their own authoritative count
     const jar = new CookieJar();
     const result = await signIn(providers, identity("google"), jar, { env: permissive() });
     expect(result.location).toBe(`${BASE}/dashboard`);
+  });
+});
+
+describe("OAuth callback precondition (state parameter and Better Auth's state cookie)", () => {
+  const callback = (provider: string, query: string, cookie: string, environment: Env) =>
+    call(`/api/auth/callback/${provider}?${query}`, { headers: cookie ? { cookie } : {} }, { env: environment });
+  const loginCalls = (calls: string[]) => calls.filter((name) => name.includes(":login:")).length;
+  const stateCookieName = (jar: CookieJar) => jar.names().find((name) => name.endsWith(".state")) ?? "missing";
+
+  it.each(["google", "github"] as const)("a valid %s callback is unchanged and counted once by the login limit", async (provider) => {
+    const { namespace, calls } = countingNamespace();
+    const result = await signIn(providers, identity(provider), new CookieJar(), { env: permissive({ AUTH_RATE_LIMITER: namespace }) });
+    expect(result.location).toBe(`${BASE}/dashboard`);
+    // Start and callback each take one login admission; a new profile one signup admission.
+    expect(loginCalls(calls)).toBe(2);
+    expect(calls.filter((name) => name.includes(":signup:"))).toHaveLength(1);
+  });
+
+  it("a provider error callback with a valid state still reaches Better Auth", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const jar = new CookieJar();
+    const flow = await startFlow(identity("google"), jar, environment);
+    const response = await callback("google", `error=access_denied&error_description=denied&state=${flow.state}`, jar.header(), environment);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(`${BASE}/login?error=access_denied`);
+    expect(loginCalls(calls)).toBe(2);
+  });
+
+  it("a callback without a state is refused before the limiter, as Better Auth would (state_not_found)", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const jar = new CookieJar();
+    const flow = await startFlow(identity("google"), jar, environment);
+    const before = providerCalls();
+    for (const query of [`code=${flow.code}`, `code=${flow.code}&state=`, "error=access_denied", ""]) {
+      const response = await callback("google", query, jar.header(), environment);
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(`${BASE}/login?error=state_not_found`);
+      expect(response.headers.getSetCookie()).toEqual([]);
+    }
+    expect(loginCalls(calls)).toBe(1); // the start only
+    expect(providerCalls()).toBe(before);
+    expect(logged("auth.oauth.callback.failure")).toBe(true);
+  });
+
+  it("a callback without Better Auth's state cookie is refused before the limiter (state_mismatch) and consumes nothing", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const jar = new CookieJar();
+    const who = identity("github");
+    const flow = await startFlow(who, jar, environment);
+    const name = stateCookieName(jar);
+    expect(name).toBe("lightagent.state"); // Better Auth's database strategy, cookie prefix `lightagent`
+    const before = providerCalls();
+    for (const cookie of ["", "other=1", `state=${jar.get(name)}`, `better-auth.state=${jar.get(name)}`, `${name}=`]) {
+      const response = await callback("github", `code=${flow.code}&state=${flow.state}`, cookie, environment);
+      expect(response.headers.get("location")).toBe(`${BASE}/login?error=state_mismatch`);
+    }
+    expect(loginCalls(calls)).toBe(1);
+    expect(providerCalls()).toBe(before);
+    // The refused callbacks consumed neither the state nor an admission: the real one still completes.
+    const real = await callback("github", `code=${flow.code}&state=${flow.state}`, jar.header(), environment);
+    expect(real.headers.get("location")).toBe(`${BASE}/dashboard`);
+  });
+
+  it("a present but forged state cookie is left to Better Auth, which refuses it", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const jar = new CookieJar();
+    const flow = await startFlow(identity("google"), jar, environment);
+    jar.set(stateCookieName(jar), `${flow.state}.forged-signature`);
+    const response = await callback("google", `code=${flow.code}&state=${flow.state}`, jar.header(), environment);
+    jar.store(response);
+    expect(response.headers.get("location")).toMatch(new RegExp(`^${BASE}/login\\?error=`));
+    expect(jar.get("lightagent.session_token")).toBeUndefined();
+    expect(loginCalls(calls)).toBe(2);
+  });
+
+  it("replaying a completed callback with its original cookies is refused by Better Auth (single-use state)", async () => {
+    const environment = permissive();
+    const jar = new CookieJar();
+    const flow = await startFlow(identity("google"), jar, environment);
+    const cookies = jar.header();
+    const first = await callback("google", `code=${flow.code}&state=${flow.state}`, cookies, environment);
+    expect(first.headers.get("location")).toBe(`${BASE}/dashboard`);
+    const replay = await callback("google", `code=${flow.code}&state=${flow.state}`, cookies, environment);
+    expect(replay.headers.get("location")).toMatch(new RegExp(`^${BASE}/login\\?error=`));
+    expect(replay.headers.getSetCookie().some((c) => c.startsWith("lightagent.session_token=") && !c.startsWith("lightagent.session_token=;"))).toBe(false);
   });
 });
 

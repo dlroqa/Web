@@ -8,7 +8,7 @@
  * session tokens, credential material, or provider error text.
  *
  *   POST /sign-in/social                      Turnstile, IP limit, rebuilt body
- *   GET  /callback/{google,github}            redirect target re-validated
+ *   GET  /callback/{google,github}            state precondition, IP limit, redirect target re-validated
  *   POST /sign-out
  *   GET  /passkey/generate-authenticate-options   IP limit
  *   POST /passkey/verify-authentication           IP limit, body bounded
@@ -18,6 +18,7 @@
  * State-changing requests have already passed the router's exact-origin
  * check; Better Auth applies its own origin/CSRF checks as well.
  */
+import { parseCookies } from "better-auth/cookies";
 import { RETURN_PATHS as SHARED_RETURN_PATHS, type ReturnPath } from "../../shared/access";
 import { z } from "../../shared/zod";
 import type { ErrorCode } from "../../shared/errors";
@@ -234,7 +235,33 @@ async function signInSocial(ctx: RequestContext, s: AuthServices): Promise<Respo
   return finish(ctx, upstream, { ok: true, data: { url: url.href } }, { status: 200 });
 }
 
+/**
+ * Why a callback cannot possibly succeed, decided without the limiter; null
+ * when Better Auth has to decide.
+ *
+ * Better Auth (parseGenericState) refuses a callback without a `state`
+ * parameter (`state_not_found`) and, unless configured otherwise, one
+ * without its state cookie (`state_mismatch`). The cookie's name comes from
+ * Better Auth's own configuration. Only presence is checked here: the
+ * cookie's signature, its match with the parameter, expiry and single use
+ * remain Better Auth's checks.
+ */
+async function callbackPreconditionFailure(ctx: RequestContext, s: AuthServices): Promise<"state_not_found" | "state_mismatch" | null> {
+  if (!ctx.url.searchParams.getAll("state").some((value) => value !== "")) return "state_not_found";
+  const { oauthConfig, createAuthCookie } = await s.auth.$context;
+  if (oauthConfig.storeStateStrategy === "database" && oauthConfig.skipStateCookieCheck) return null;
+  const cookie = createAuthCookie(oauthConfig.storeStateStrategy === "cookie" ? "oauth_state" : "state");
+  return parseCookies(ctx.request.headers.get("cookie") ?? "").get(cookie.name) ? null : "state_mismatch";
+}
+
 async function oauthCallback(ctx: RequestContext, s: AuthServices, provider: string): Promise<Response> {
+  // A callback that cannot succeed gets Better Auth's answer without
+  // spending a limiter (Durable Object) request.
+  const failure = await callbackPreconditionFailure(ctx, s);
+  if (failure) {
+    ctx.logger.warn("auth.oauth.callback.failure", { provider, error: failure, stage: "precondition" });
+    return finish(ctx, new Response(null), null, { status: 302, location: `${s.authConfig.publicOrigin}${LOGIN_PATH}?error=${failure}` });
+  }
   await enforceRateLimit(s.limiter, "login", { kind: "ip", address: clientAddress(ctx) });
   const upstream = await s.auth.handler(ctx.request);
   // A refusal by account policy gets the same application code as the

@@ -238,8 +238,8 @@ describe("Better Auth diagnostics and session tokens", () => {
     // Same verified email from a second provider: Better Auth logs account_not_linked.
     const attempt = await signIn(providers, identity("github", { email: google.email }), new CookieJar());
     expect(attempt.location).toBe(`${BASE}/login?error=account_not_linked`);
-    // A forged state: Better Auth logs a state failure.
-    await call(`/api/auth/callback/google?code=abc&state=${"s".repeat(40)}`);
+    // A forged state (with a state cookie, so it reaches Better Auth): Better Auth logs a state failure.
+    await call(`/api/auth/callback/google?code=abc&state=${"s".repeat(40)}`, { headers: { cookie: "lightagent.state=forged" } });
 
     expect(logLines.some((l) => l.includes("[Better Auth]"))).toBe(false);
     for (const line of logLines) expect(() => JSON.parse(line)).not.toThrow();

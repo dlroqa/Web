@@ -278,7 +278,13 @@ Worker's own request limits; each costs one Siteverify call (5 s timeout,
 bounded response) and nothing else. Passkey options
 and verification, and the OAuth callbacks, are limited before Better Auth
 runs (so no passkey challenge or verification row is written for a refused
-request). The signup limit runs inside session creation, after the OAuth
+request). An OAuth callback without a `state` parameter, or without Better
+Auth's state cookie (`lightagent.state`, `__Secure-` prefixed over HTTPS;
+the name comes from Better Auth's configuration), cannot succeed and is
+redirected to `/login?error=state_not_found` / `state_mismatch` (the codes
+Better Auth itself would give) before the limiter, so it costs no Durable
+Object request. Only presence is checked; Better Auth still validates the
+state (signature, match with the parameter, expiry, single use). The signup limit runs inside session creation, after the OAuth
 exchange (already limited by `login`) and before the profile is created.
 
 Binding keys remain `policy:kind:value` (the normalized address for IP
