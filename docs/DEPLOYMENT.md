@@ -117,6 +117,9 @@ So a new class is introduced in two approved steps:
 The `AuthRateLimiter` class (migration tag `v1-auth-rate-limiter`) has not
 been applied to staging or production; see the log entry below.
 
+Plan limits, quota-exhaustion risk, monitoring, activation preflight and
+rollback for the limiter: [RATE_LIMITER_RUNBOOK.md](RATE_LIMITER_RUNBOOK.md).
+
 ## Staging smoke test
 
 Run after every staging deploy:
