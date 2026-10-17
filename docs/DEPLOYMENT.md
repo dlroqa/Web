@@ -608,3 +608,43 @@ Next, separately approved (P1): `npx wrangler versions deploy
 0fbd01ba-e5cd-44b5-9513-6c85c723c7e4@100% --name lightagent-control-staging
 --message "<approval reference>" --yes`, from a staging build of `f6ab94b`;
 rollback: the same with `7750a63c-fd3d-424e-a2c7-feb062cd4633@100%`.
+
+#### 2026-10-17: F1 limiter hardening validated and integrated (no upload)
+
+F1 makes the authoritative limiter usable on Workers Free and Paid alike
+(see [RATE_LIMITER_RUNBOOK.md](RATE_LIMITER_RUNBOOK.md)):
+M1 Turnstile before the Durable Object on sign-in start; M2 OAuth
+callbacks without `state` or Better Auth's state cookie refused before the
+limiter; M4 cleanup alarms at most once per 5 minutes per active counter
+(decisions unchanged); M0 runbook. No class, binding or migration change.
+It supersedes `0fbd01ba` as the candidate for U2/P1: the P1 command above
+is no longer the plan.
+
+Hosted validation (Workers Builds, Deploy command = guard + `npx wrangler
+deploy --env staging --dry-run`, no upload): build
+`f66eb15d-e359-4baf-922d-47b13d4bac06` on `892672d`, an empty trigger
+commit with the same tree (`fbadf05`) as F1 `4466156`, built with the
+production branch temporarily set to `f1/limiter-hardening` (restored to
+`deploy/staging` afterwards; the switch alone does not start a build).
+
+| Step | Result |
+|---|---|
+| `protocol:verify` | r4 compatibility digest `454066f8…29a43`, 11 hashed files; `sha256sum --check` all OK |
+| `typecheck` | `tsc -b` clean (no build info tracked: full check) |
+| `npm test` | 45 files / 1,070 tests passed (`rate-limit-do` 21, `auth-rate-limit` 23, `auth` 53, `hardening` 13, `rate-limit` 22) |
+| `test:build` | 12/12, including `staging build config verified: lightagent-control-staging, DB 3cc0724d-…, AUTH_RATE_LIMITER -> AuthRateLimiter, migrations [v1-auth-rate-limiter], preview_urls false` |
+| Deploy command | guard `staging config verified`; dry run listed `AUTH_RATE_LIMITER`, `DB`, `RL_*` and the staging vars; `--dry-run: exiting now.` |
+| Live afterwards | carrier `7750a63c` 100%, `0fbd01ba` 0%, no new version or deployment, no pending D1 migration, 0 `AuthRateLimiter` objects |
+
+Known limitations: storage-write counts are SQLite's row counts in
+miniflare plus `setAlarm` as one write (Cloudflare's documented billing);
+the billing of `deleteAll` and real quota accounting are only observable
+live (bounded P1 test). Open before public production: M3 (Turnstile on
+passkey options), authoritative `security_write` / `recovery` /
+`provision`, M5 (custom domain and edge rule). On Workers Free an
+IP-rotating client can still exhaust the account-wide Durable Object
+allowance (sign-in unavailable until 00:00 UTC).
+
+Integration: `deploy/staging` fast-forwarded from `f6ab94b` to F1
+`4466156` (the trigger commit is not included) plus this record; the push
+runs the dry-run pipeline once more on the integrated head.
