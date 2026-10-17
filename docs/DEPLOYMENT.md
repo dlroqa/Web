@@ -648,3 +648,28 @@ allowance (sign-in unavailable until 00:00 UTC).
 Integration: `deploy/staging` fast-forwarded from `f6ab94b` to F1
 `4466156` (the trigger commit is not included) plus this record; the push
 runs the dry-run pipeline once more on the integrated head.
+
+Merged-head validation: Workers Builds `4026cc56-0083-42d5-a17f-4fa64aa787e4`
+on `deploy/staging` = `2d17143` (dry run): r4 digest `454066f8…29a43`, `tsc
+-b` clean, 45 files / 1,070 tests, `test:build` 12/12, `staging build config
+verified` and `staging config verified`, `--dry-run: exiting now.` Per-file
+test list, Vite output, Wrangler module table, bindings and Deploy command
+identical to `f66eb15d`. Live afterwards unchanged (`7750a63c` 100%,
+`0fbd01ba` 0%, no pending D1 migration, 0 `AuthRateLimiter` objects).
+
+#### 2026-10-17: U2 (inactive upload of F1)
+
+First attempt: with the Deploy command switched to the guard + `npx
+wrangler versions upload --env staging --message "F1 2d17143 limiter"`
+(459 characters, checked byte for byte), **Retry** of `4026cc56` started
+Builds `1031a94d-7d46-4125-af55-8e2a7d2e4eff`: the full pipeline passed
+again (45 files / 1,070 tests, 12/12), but the build ran the Deploy
+command of the original build (the dry run, sha256 `73fda913…`) and
+uploaded nothing (still 22 versions; `7750a63c` 100%). **A Retry re-runs
+the original build's Deploy command; it cannot be used to change what a
+build does.** Deploy command restored to the dry run afterwards (429
+characters, sha256 checked).
+
+Second attempt: this documentation-only commit, pushed while the upload
+command is saved, starts a new build that uploads the inactive version.
+Its application code and configuration are those of `2d17143`.
