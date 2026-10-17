@@ -85,6 +85,17 @@ Activation is a separate, approved, manual step:
 npx wrangler versions deploy <version-id>@100% --name lightagent-control-staging --message "<approval reference>" --yes
 ```
 
+**Where work runs.** Workers Builds is the only place Web is built, tested,
+rendered, packaged and dry-run deployed. A developer machine keeps the Git
+repository, edits sources and documentation, and does lightweight Git
+operations and source inspections only: no `npm run build`, full test
+suites, Vite production builds, project-wide `tsc`, workerd/Miniflare tests or
+Wrangler dry runs. A check that Builds cannot run is reported, with a
+Cloudflare-hosted alternative, before anything else is done.
+
+**Retry** of a build re-runs that build's Deploy command, not the one saved
+since; only a new commit picks up a changed Deploy command (U2, below).
+
 Roll back the same way, with the previous version id. A version deploy also
 syncs non-versioned settings (logpush, observability) from the local
 `dist/lightagent_control/wrangler.json`, so run it from a staging build of the
@@ -114,8 +125,9 @@ So a new class is introduced in two approved steps:
    Rollback = `versions deploy <carrier>@100%` (no lifecycle change between
    them, so it is allowed).
 
-The `AuthRateLimiter` class (migration tag `v1-auth-rate-limiter`) has not
-been applied to staging or production; see the log entry below.
+The `AuthRateLimiter` class (migration tag `v1-auth-rate-limiter`) was
+applied to staging by the C2 carrier (2026-10-16) and has not been applied
+to production; see the log entries below.
 
 Plan limits, quota-exhaustion risk, monitoring, activation preflight and
 rollback for the limiter: [RATE_LIMITER_RUNBOOK.md](RATE_LIMITER_RUNBOOK.md).
@@ -657,7 +669,7 @@ test list, Vite output, Wrangler module table, bindings and Deploy command
 identical to `f66eb15d`. Live afterwards unchanged (`7750a63c` 100%,
 `0fbd01ba` 0%, no pending D1 migration, 0 `AuthRateLimiter` objects).
 
-#### 2026-10-17: U2 (inactive upload of F1)
+#### 2026-10-17: U2 (inactive upload of F1, closed)
 
 First attempt: with the Deploy command switched to the guard + `npx
 wrangler versions upload --env staging --message "F1 2d17143 limiter"`
@@ -692,3 +704,65 @@ checks), then the guarded `versions upload` (Deploy command sha256
 Deploy command restored to the dry run straight after (429 characters,
 sha256 `73fda913…`). `6b397259` replaces `0fbd01ba` as the P1 candidate;
 P1 needs separate approval (see [RATE_LIMITER_RUNBOOK.md](RATE_LIMITER_RUNBOOK.md)).
+
+#### 2026-10-17: P1 bounded activation test of F1 and rollback (closed)
+
+Approved as a temporary, bounded test only: dashboard promotion of
+`6b397259`, at most 30 minutes, mandatory rollback to the carrier, Workers
+Free unchanged, no long-term activation. Preflight (P1.0) passed: carrier at
+100%, 0 `AuthRateLimiter` objects, no pending D1 migration, script settings
+logpush off / no tail consumers / observability on, Durable Object usage that
+day 0 requests and 0 writes.
+
+| | |
+|---|---|
+| Activation | deployment `e5e5fbab-b19b-4d77-b9d2-8fc2231c64d9`, 14:42:58Z, message `P1 F1 6b397259` (dashboard "Promote deployment"): `6b397259` 100% |
+| Rollback | deployment `b64a2fa9-3fcc-465a-a473-1bdfd5db51ab`, 15:11:52Z, "Rollback to previous version": `7750a63c` 100%, 29 min after activation |
+| Smoke test | `GET /` 200, `GET /api/me` 401, both served by `6b397259` (`wrangler tail`) |
+
+The dashboard's "Traffic %" column shows the observed request share, not the
+allocation (it read 0% straight after promotion); the deployments API is
+authoritative.
+
+Bounded tests, from one identified client IPv4, sequential, 15:04:35–15:05:43Z
+([scripts/p1-bounded-tests.sh](../scripts/p1-bounded-tests.sh), 46 requests):
+
+| Test | Expected and observed |
+|---|---|
+| T1 (M1) | 21 sign-in starts with an invalid Turnstile token: 21 × 403 `TURNSTILE_FAILED`, never 429; no Durable Object call |
+| T2 (M2) | callback without `state`: 302 `/login?error=state_not_found`; without the state cookie: 302 `?error=state_mismatch`; before the limiter |
+| T3 | 21 passkey sign-in options: 20 × 200, then 429 with `Retry-After: 54` |
+| T4 | `POST /passkey/verify-authentication` on the exhausted address: 429 (shared `passkey_login` counter) |
+| T5 | after `Retry-After` + 1 s: 200 (sliding window recovered) |
+| T6 | operator browser: Google sign-in (`auth.login.success` 15:07:54Z) → dashboard, Agents, Security → sign-out (`auth.logout` 15:10:16Z); session cookie `HttpOnly; Secure; SameSite=Strict` |
+
+Runtime evidence: the `wrangler tail` capture (81 events) has 0 exceptions,
+0 HTTP 5xx and no `ratelimit.authoritative_failed`. The capture is not
+complete: it holds 14 Durable Object invocations (analytics: 29) and no event
+for the T4 request, whose 429 is the script's assertion. Account usage for
+the UTC day after the test: Durable Objects 29 requests / 50 rows written,
+D1 87 rows written, Worker 72 requests with 0 errors. M4: the last counter's
+cleanup alarm ran at 15:13:49Z (after the rollback, so on the carrier's
+class code) and the namespace returned to 0 objects. The `/favicon.ico`
+404 predates F1 (see W1 on staging, above).
+
+The script's closing count was wrong in the run (it printed 1): `req`
+incremented the counter inside `$(…)` subshells. Corrected afterwards
+(requests, order, expected responses, identity check and stop rules
+unchanged; the 49-request budget is now enforced); not re-run live.
+
+Final state (re-checked with `wrangler deployments list` / `versions list`):
+latest deployment `b64a2fa9` with carrier `7750a63c` at **100%**; F1
+`6b397259` and the earlier limiter `0fbd01ba` uploaded at 0%. F1 is
+validated under these controlled conditions only and is **not** authorized
+for ongoing traffic.
+
+Open before production (each a separate approval gate):
+
+- M3: Turnstile before the limiter on passkey sign-in options (anonymous
+  options requests currently cost a Durable Object request and a D1 write).
+- Authoritative `security_write`, `recovery` and `provision` limits (still
+  binding-only, and the bindings do not enforce: workers-sdk#16097).
+- M5: custom domain with a WAF rate-limiting rule in front of the Worker.
+- On Workers Free, an IP-rotating client can still exhaust the account-wide
+  Durable Object allowance (fail closed: sign-in unavailable until 00:00 UTC).
