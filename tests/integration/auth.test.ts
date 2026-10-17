@@ -6,7 +6,7 @@ import { UserRepository } from "../../src/worker/db/users";
 import { CloudflareRateLimiter } from "../../src/worker/security/rate-limit";
 import { createLogger } from "../../src/worker/utils/log";
 import { randomId } from "../../src/worker/utils/random";
-import { FakeProviders, get, identity, send, signIn } from "../helpers/auth";
+import { FakeProviders, get, identity, passkeyOptions, send, signIn } from "../helpers/auth";
 import { CookieJar, parseSetCookie } from "../helpers/cookies";
 import { BASE, call, randomClientIp, testEnv } from "../helpers/worker";
 
@@ -311,7 +311,7 @@ describe("rate limiting", () => {
 
   it("passkey sign-in options are refused by their own limiter before Better Auth", async () => {
     const rl: RateLimit = { limit: async () => ({ success: false }) };
-    const response = await call("/api/auth/passkey/generate-authenticate-options", { headers: { "cf-connecting-ip": "198.51.100.80" } }, { env: testEnv({ RL_PASSKEY_LOGIN: rl }) });
+    const response = await passkeyOptions(new CookieJar(), { headers: { "cf-connecting-ip": "198.51.100.80" }, env: testEnv({ RL_PASSKEY_LOGIN: rl }) });
     expect(response.status).toBe(429);
     expect(response.headers.getSetCookie()).toEqual([]);
   });

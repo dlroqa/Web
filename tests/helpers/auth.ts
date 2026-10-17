@@ -36,7 +36,15 @@ export class FakeProviders {
   readonly issuedTokens: string[] = [];
   private keys: CryptoKeyPair | undefined;
   private spy: MockInstance<typeof fetch> | undefined;
-  turnstile: "pass" | "fail" = "pass";
+  /**
+   * Siteverify's answer: "pass"/"fail" as for Cloudflare's test keys;
+   * "unavailable" an HTTP 503; "real" a production-shaped success (no
+   * testing flag) for `turnstileHostname` and `turnstileAction`, so the
+   * hostname and action checks apply.
+   */
+  turnstile: "pass" | "fail" | "unavailable" | "real" = "pass";
+  turnstileHostname = "localhost";
+  turnstileAction = "login";
   googleTokenStatus = 200;
 
   private async signingKeys(): Promise<CryptoKeyPair> {
@@ -84,6 +92,10 @@ export class FakeProviders {
       const form = new URLSearchParams(body);
       switch (`${url.origin}${url.pathname}`) {
         case "https://challenges.cloudflare.com/turnstile/v0/siteverify":
+          if (this.turnstile === "unavailable") return new Response("upstream unavailable", { status: 503 });
+          if (this.turnstile === "real") {
+            return json({ success: true, "error-codes": [], hostname: this.turnstileHostname, action: this.turnstileAction, challenge_ts: new Date().toISOString() });
+          }
           return this.turnstile === "pass"
             ? json({ success: true, "error-codes": [], hostname: "example.com", challenge_ts: new Date().toISOString(), metadata: { result_with_testing_key: true } })
             : json({ success: false, "error-codes": ["invalid-input-response"] });
@@ -155,6 +167,25 @@ export async function signIn(
   const callback = await call(`/api/auth/callback/${who.provider}?code=${code}&state=${encodeURIComponent(state)}`, { headers: { cookie: jar.header() } }, options);
   jar.store(callback);
   return { start, callback, location: callback.headers.get("location"), authorizationUrl };
+}
+
+/**
+ * Passkey sign-in options as the login page requests them: POST from the
+ * trusted origin with a Turnstile token; Better Auth's challenge cookie is
+ * kept in `jar`.
+ */
+export async function passkeyOptions(jar: CookieJar, options: CallOptions & { headers?: Record<string, string> } = {}): Promise<Response> {
+  const response = await call(
+    "/api/auth/passkey/generate-authenticate-options",
+    {
+      method: "POST",
+      headers: { origin: BASE, "content-type": "application/json", cookie: jar.header(), ...options.headers },
+      body: JSON.stringify({ turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" }),
+    },
+    options,
+  );
+  jar.store(response);
+  return response;
 }
 
 /** GET an API path with the jar's cookies. */

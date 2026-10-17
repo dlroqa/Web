@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UserRepository } from "../../src/worker/db/users";
 import { randomId } from "../../src/worker/utils/random";
-import { FakeProviders, get, identity, send, signIn } from "../helpers/auth";
+import { FakeProviders, get, identity, passkeyOptions, send, signIn } from "../helpers/auth";
 import { CookieJar } from "../helpers/cookies";
 import { SoftAuthenticator } from "../helpers/webauthn";
 import { BASE, call } from "../helpers/worker";
@@ -49,8 +49,7 @@ async function enroll(jar: CookieJar, authenticator: SoftAuthenticator, name = "
 /** Sign in with a passkey in a fresh browser. */
 async function passkeyLogin(authenticator: SoftAuthenticator): Promise<{ jar: CookieJar; response: Response }> {
   const jar = new CookieJar();
-  const optionsResponse = await call("/api/auth/passkey/generate-authenticate-options", { headers: { cookie: jar.header() } });
-  jar.store(optionsResponse);
+  const optionsResponse = await passkeyOptions(jar);
   const options = (await optionsResponse.json()) as { challenge: string };
   const assertion = await authenticator.authenticate(options);
   const response = await send("POST", "/api/auth/passkey/verify-authentication", jar, { response: assertion });
@@ -141,8 +140,7 @@ describe("passkey sign-in", () => {
     const authenticator = authenticatorFor();
     await enroll(jar, authenticator);
     const browser = new CookieJar();
-    const optionsResponse = await call("/api/auth/passkey/generate-authenticate-options", { headers: { cookie: browser.header() } });
-    browser.store(optionsResponse);
+    const optionsResponse = await passkeyOptions(browser);
     const assertion = await authenticator.authenticate((await optionsResponse.json()) as { challenge: string });
     expect((await send("POST", "/api/auth/passkey/verify-authentication", browser, { response: assertion })).status).toBe(200);
     const replayJar = new CookieJar();
@@ -159,7 +157,7 @@ describe("passkey sign-in", () => {
     ["extra fields", { response: {}, userId: "usr_someone" }],
   ])("a malformed assertion (%s) fails safely without a session", async (_label, body) => {
     const jar = new CookieJar();
-    jar.store(await call("/api/auth/passkey/generate-authenticate-options", { headers: { cookie: jar.header() } }));
+    await passkeyOptions(jar);
     const response = await send("POST", "/api/auth/passkey/verify-authentication", jar, body);
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(response.status).toBeLessThan(500);
@@ -250,8 +248,7 @@ describe("no WebAuthn material in logs", () => {
     const authenticator = authenticatorFor();
     await enroll(jar, authenticator);
     const browser = new CookieJar();
-    const optionsResponse = await call("/api/auth/passkey/generate-authenticate-options", { headers: { cookie: browser.header() } });
-    browser.store(optionsResponse);
+    const optionsResponse = await passkeyOptions(browser);
     const assertion = await authenticator.authenticate((await optionsResponse.json()) as { challenge: string });
     await send("POST", "/api/auth/passkey/verify-authentication", browser, { response: assertion });
     const all = logLines.join("\n");

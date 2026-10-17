@@ -2,6 +2,8 @@
  * Cloudflare Turnstile, loaded only on the login page from its exact origin
  * (allowed by the CSP). The token is single-use; reset after each attempt.
  */
+import type { PublicConfig } from "./api";
+
 interface TurnstileApi {
   render(container: HTMLElement, options: Record<string, unknown>): string;
   reset(widgetId: string): void;
@@ -14,7 +16,15 @@ declare global {
   }
 }
 
-const SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+/**
+ * Whether the login page needs the widget: some button on it spends a token
+ * (OAuth sign-in start, passkey sign-in options).
+ */
+export function turnstileNeeded(config: Pick<PublicConfig, "providers" | "turnstileSiteKey">, passkeyButton: boolean): boolean {
+  return config.turnstileSiteKey !== null && (config.providers.length > 0 || passkeyButton);
+}
+
+const SCRIPT_URL ="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 let loading: Promise<TurnstileApi> | null = null;
 
 export function loadTurnstile(): Promise<TurnstileApi> {

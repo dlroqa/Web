@@ -55,8 +55,13 @@ function startSignIn(headers: Record<string, string>, environment: Env = permiss
   );
 }
 
-const passkeyOptions = (headers: Record<string, string>, environment: Env = permissive()) =>
-  call("/api/auth/passkey/generate-authenticate-options", { headers }, { env: environment });
+/** Passkey sign-in options as the login page sends them (POST, trusted origin, Turnstile token). */
+const passkeyOptions = (headers: Record<string, string>, environment: Env = permissive(), body: unknown = { turnstileToken: "t" }) =>
+  call(
+    "/api/auth/passkey/generate-authenticate-options",
+    { method: "POST", headers: { origin: BASE, "content-type": "application/json", ...headers }, body: JSON.stringify(body) },
+    { env: environment },
+  );
 
 /** Start an OAuth sign-in in `jar` and register a provider code for it; the callback is left to the test. */
 async function startFlow(who: Identity, jar: CookieJar, environment: Env, ip?: string): Promise<{ state: string; code: string }> {
@@ -209,10 +214,13 @@ describe("other authentication paths share or have their own authoritative count
     expect(Number(refused.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
     expect(refused.headers.getSetCookie()).toEqual([]);
     expect(await challengeRows()).toBe(rows);
-    // Passkey verification shares the counter: refused before its body is read.
+    // Passkey verification shares the counter: with a live challenge (issued
+    // to another address), refused before its body is read.
+    const browser = new CookieJar();
+    browser.store(await passkeyOptions({ "cf-connecting-ip": freshIp() }));
     const verify = await call(
       "/api/auth/passkey/verify-authentication",
-      { method: "POST", headers: { origin: BASE, "content-type": "application/json", "cf-connecting-ip": ip }, body: "{}" },
+      { method: "POST", headers: { origin: BASE, "content-type": "application/json", "cf-connecting-ip": ip, cookie: browser.header() }, body: "{}" },
       { env: permissive() },
     );
     expect(verify.status).toBe(429);
@@ -318,6 +326,85 @@ describe("OAuth callback precondition (state parameter and Better Auth's state c
     const replay = await callback("google", `code=${flow.code}&state=${flow.state}`, cookies, environment);
     expect(replay.headers.get("location")).toMatch(new RegExp(`^${BASE}/login\\?error=`));
     expect(replay.headers.getSetCookie().some((c) => c.startsWith("lightagent.session_token=") && !c.startsWith("lightagent.session_token=;"))).toBe(false);
+  });
+});
+
+describe("passkey sign-in options: Turnstile before the limiter (M3a)", () => {
+  it("a failing token never reaches the Durable Object and writes no challenge", async () => {
+    providers.turnstile = "fail";
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const ip = freshIp();
+    const rows = await challengeRows();
+    for (let i = 0; i < 21; i += 1) {
+      const response = await passkeyOptions({ "cf-connecting-ip": ip }, environment, { turnstileToken: "invalid" });
+      expect(response.status).toBe(403);
+      expect(response.headers.getSetCookie()).toEqual([]);
+      expect(await codeOf(response)).toBe("TURNSTILE_FAILED");
+    }
+    expect(siteverifyCalls()).toBe(21);
+    expect(calls).toEqual([]);
+    expect(await challengeRows()).toBe(rows);
+    // No admissions were used: the address still has its full allowance.
+    providers.turnstile = "pass";
+    for (let i = 0; i < 20; i += 1) expect((await passkeyOptions({ "cf-connecting-ip": ip }, environment)).status).toBe(200);
+    expect(calls).toHaveLength(20);
+  }, 30_000);
+
+  it("fails closed without the Durable Object when Siteverify is unavailable", async () => {
+    providers.turnstile = "unavailable";
+    const { namespace, calls } = countingNamespace();
+    const rows = await challengeRows();
+    const response = await passkeyOptions({ "cf-connecting-ip": freshIp() }, permissive({ AUTH_RATE_LIMITER: namespace }));
+    expect(response.status).toBe(403);
+    expect(await codeOf(response)).toBe("TURNSTILE_FAILED");
+    expect(siteverifyCalls()).toBe(1);
+    expect(calls).toEqual([]);
+    expect(await challengeRows()).toBe(rows);
+    expect(logged("turnstile.failed")).toBe(true);
+  });
+
+  it("accepts only a token solved for the login action on an expected hostname", async () => {
+    providers.turnstile = "real";
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    expect((await passkeyOptions({ "cf-connecting-ip": freshIp() }, environment)).status).toBe(200);
+    providers.turnstileAction = "signup";
+    const wrongAction = await passkeyOptions({ "cf-connecting-ip": freshIp() }, environment);
+    expect(wrongAction.status).toBe(403);
+    expect(await codeOf(wrongAction)).toBe("TURNSTILE_FAILED");
+    providers.turnstileAction = "login";
+    providers.turnstileHostname = "evil.example";
+    const wrongHost = await passkeyOptions({ "cf-connecting-ip": freshIp() }, environment);
+    expect(wrongHost.status).toBe(403);
+    expect(await codeOf(wrongHost)).toBe("TURNSTILE_FAILED");
+    expect(siteverifyCalls()).toBe(3);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("refuses a GET, a foreign or missing origin, a non-JSON body and a bad body before Turnstile and the Durable Object", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const path = "/api/auth/passkey/generate-authenticate-options";
+    const json = JSON.stringify({ turnstileToken: "t" });
+    const get = await call(path, { headers: { "cf-connecting-ip": freshIp() } }, { env: environment });
+    expect(get.status).toBe(405);
+    expect(get.headers.get("allow")).toBe("POST");
+    expect((await call(path, { method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: json }, { env: environment })).status).toBe(403);
+    expect((await call(path, { method: "POST", headers: { "content-type": "application/json" }, body: json }, { env: environment })).status).toBe(403);
+    expect((await call(path, { method: "POST", headers: { origin: BASE, "content-type": "text/plain" }, body: json }, { env: environment })).status).toBe(415);
+    for (const body of [{}, { turnstileToken: "" }, { turnstileToken: "t", userId: "usr_someone" }, { turnstileToken: "x".repeat(2049) }]) {
+      expect((await passkeyOptions({ "cf-connecting-ip": freshIp() }, environment, body)).status).toBe(400);
+    }
+    expect(siteverifyCalls()).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses an unidentifiable client before Turnstile", async () => {
+    const response = await passkeyOptions({ "cf-connecting-ip": "unknown" });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(siteverifyCalls()).toBe(0);
   });
 });
 

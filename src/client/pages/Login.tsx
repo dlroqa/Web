@@ -3,7 +3,7 @@ import { api, ApiRequestError, type PublicConfig } from "../lib/api";
 import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from "../lib/passkeys";
 import { safeReturnPath, usePageTitle, useRouter } from "../lib/router";
 import { useSession } from "../lib/session";
-import { loadTurnstile } from "../lib/turnstile";
+import { loadTurnstile, turnstileNeeded } from "../lib/turnstile";
 import { Alert } from "../components/ui";
 import { GitHubMark, GoogleMark, KeyIcon, LogoMark } from "../components/icons";
 
@@ -58,7 +58,7 @@ export function Login() {
   useEffect(() => {
     const siteKey = config?.turnstileSiteKey;
     const container = widgetRef.current;
-    if (!siteKey || !container || config.providers.length === 0) return;
+    if (!siteKey || !container || !turnstileNeeded(config, config.passkeys && passkeysSupported())) return;
     let cancelled = false;
     loadTurnstile()
       .then((turnstile) => {
@@ -101,13 +101,24 @@ export function Login() {
   }
 
   async function passkey() {
+    if (!config?.turnstileSiteKey) {
+      setMessage({ tone: "error", text: "The verification check couldn't load. Please refresh the page." });
+      return;
+    }
+    if (!turnstileToken) {
+      setMessage({ tone: "info", text: "Just a moment while we verify your browser." });
+      return;
+    }
     setBusy("passkey");
     setMessage(null);
     try {
-      await signInWithPasskey();
+      await signInWithPasskey(turnstileToken);
       await refresh();
       navigate(returnTo, { replace: true });
     } catch (error) {
+      // The options request spent the token, whatever failed afterwards
+      // (including a cancelled ceremony): the next attempt needs a new one.
+      resetTurnstile();
       setMessage({
         tone: "error",
         text:

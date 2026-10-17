@@ -8,7 +8,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mapUpstreamError } from "../../src/worker/auth/gateway";
 import { UserRepository } from "../../src/worker/db/users";
-import { FakeProviders, get, identity, send, signIn, type Identity } from "../helpers/auth";
+import { FakeProviders, get, identity, passkeyOptions, send, signIn, type Identity } from "../helpers/auth";
 import { CookieJar, parseSetCookie } from "../helpers/cookies";
 import { SoftAuthenticator } from "../helpers/webauthn";
 import { BASE, call } from "../helpers/worker";
@@ -56,8 +56,7 @@ async function userWithPasskey(): Promise<{ who: Identity; jar: CookieJar; authe
 
 async function passkeyLogin(authenticator: SoftAuthenticator): Promise<{ jar: CookieJar; response: Response }> {
   const jar = new CookieJar();
-  const optionsResponse = await call("/api/auth/passkey/generate-authenticate-options", { headers: { cookie: jar.header() } });
-  jar.store(optionsResponse);
+  const optionsResponse = await passkeyOptions(jar);
   const assertion = await authenticator.authenticate((await optionsResponse.json()) as { challenge: string });
   const response = await send("POST", "/api/auth/passkey/verify-authentication", jar, { response: assertion });
   return { jar, response };

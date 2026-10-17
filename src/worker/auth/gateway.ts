@@ -10,7 +10,7 @@
  *   POST /sign-in/social                      Turnstile, IP limit, rebuilt body
  *   GET  /callback/{google,github}            state precondition, IP limit, redirect target re-validated
  *   POST /sign-out
- *   GET  /passkey/generate-authenticate-options   IP limit
+ *   POST /passkey/generate-authenticate-options   Turnstile, IP limit (Better Auth sees its GET)
  *   POST /passkey/verify-authentication           IP limit, body bounded
  *   GET  /passkey/generate-register-options       principal, user limit
  *   POST /passkey/verify-registration             principal, user limit
@@ -52,6 +52,7 @@ const SignInSocialBody = z
   })
   .strict();
 
+const PasskeyAuthOptionsBody = z.object({ turnstileToken: z.string().min(1).max(2048) }).strict();
 const PasskeyAuthBody = z.object({ response: z.record(z.string(), z.unknown()) }).strict();
 const PasskeyRegisterBody = z
   .object({
@@ -104,6 +105,14 @@ function rebuild(original: Request, url: URL, body?: unknown): Request {
     headers,
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
+}
+
+/** A bodiless GET to `url` with the original's other headers, for Better Auth's GET endpoints. */
+function asGet(original: Request, url: URL): Request {
+  const headers = new Headers(original.headers);
+  headers.delete("content-length");
+  headers.delete("content-type");
+  return new Request(url, { method: "GET", headers });
 }
 
 /** Copy only Set-Cookie (and optionally Location) from Better Auth's response. */
@@ -186,6 +195,20 @@ export function safeCallbackLocation(location: string | null, publicOrigin: stri
 }
 
 /**
+ * Siteverify for the login page's widget (action `login`); TURNSTILE_FAILED
+ * unless it passes. Siteverify being unavailable is a failure too.
+ */
+async function requireTurnstile(ctx: RequestContext, token: string): Promise<void> {
+  const turnstile = await new TurnstileVerifier({
+    secret: readSecret(ctx.env, "TURNSTILE_SECRET"),
+    environment: ctx.config.environment,
+    expectedHostnames: ctx.config.turnstileHostnames,
+    logger: ctx.logger,
+  }).verify({ token, expectedAction: "login", remoteIp: ctx.request.headers.get("cf-connecting-ip") ?? undefined, idempotencyKey: ctx.requestId });
+  if (!turnstile.ok) throw new ApiError("TURNSTILE_FAILED", { logReason: `turnstile ${turnstile.reason}` });
+}
+
+/**
  * Sign-in start: request validation → client identity → Turnstile → the
  * authoritative limit → Better Auth.
  *
@@ -200,13 +223,7 @@ async function signInSocial(ctx: RequestContext, s: AuthServices): Promise<Respo
   const address = clientAddress(ctx);
   if (address === null) await enforceRateLimit(s.limiter, "login", { kind: "ip", address });
 
-  const turnstile = await new TurnstileVerifier({
-    secret: readSecret(ctx.env, "TURNSTILE_SECRET"),
-    environment: ctx.config.environment,
-    expectedHostnames: ctx.config.turnstileHostnames,
-    logger: ctx.logger,
-  }).verify({ token: body.turnstileToken, expectedAction: "login", remoteIp: ctx.request.headers.get("cf-connecting-ip") ?? undefined, idempotencyKey: ctx.requestId });
-  if (!turnstile.ok) throw new ApiError("TURNSTILE_FAILED", { logReason: `turnstile ${turnstile.reason}` });
+  await requireTurnstile(ctx, body.turnstileToken);
   await enforceRateLimit(s.limiter, "login", { kind: "ip", address });
 
   const upstream = await s.auth.handler(
@@ -289,9 +306,21 @@ async function signOut(ctx: RequestContext, s: AuthServices): Promise<Response> 
   return finish(ctx, upstream, { ok: true, data: { signedOut: true } });
 }
 
+/**
+ * Passkey sign-in options, in the same order as sign-in start: request
+ * validation → client identity → Turnstile → the authoritative limit →
+ * Better Auth. A request without a passing token costs no Durable Object
+ * request and writes no challenge. Better Auth's endpoint is a GET without
+ * parameters; it receives exactly that.
+ */
 async function passkeyAuthenticateOptions(ctx: RequestContext, s: AuthServices): Promise<Response> {
-  await enforceRateLimit(s.limiter, "passkey_login", { kind: "ip", address: clientAddress(ctx) });
-  const upstream = await s.auth.handler(rebuild(ctx.request, new URL(ctx.url.pathname, ctx.url)));
+  const body = parse(PasskeyAuthOptionsBody, await readJson(ctx.request));
+  const address = clientAddress(ctx);
+  if (address === null) await enforceRateLimit(s.limiter, "passkey_login", { kind: "ip", address });
+
+  await requireTurnstile(ctx, body.turnstileToken);
+  await enforceRateLimit(s.limiter, "passkey_login", { kind: "ip", address });
+  const upstream = await s.auth.handler(asGet(ctx.request, new URL(ctx.url.pathname, ctx.url)));
   if (!upstream.ok) return upstreamError(ctx, s, upstream);
   return finish(ctx, upstream, await upstream.json());
 }
@@ -362,7 +391,7 @@ const ROUTES: ReadonlyArray<{ method: string; path: string; handler: Handler }> 
   { method: "GET", path: "/callback/google", handler: (c, s) => oauthCallback(c, s, "google") },
   { method: "GET", path: "/callback/github", handler: (c, s) => oauthCallback(c, s, "github") },
   { method: "POST", path: "/sign-out", handler: signOut },
-  { method: "GET", path: "/passkey/generate-authenticate-options", handler: passkeyAuthenticateOptions },
+  { method: "POST", path: "/passkey/generate-authenticate-options", handler: passkeyAuthenticateOptions },
   { method: "POST", path: "/passkey/verify-authentication", handler: passkeyVerifyAuthentication },
   { method: "GET", path: "/passkey/generate-register-options", handler: passkeyRegisterOptions },
   { method: "POST", path: "/passkey/verify-registration", handler: passkeyVerifyRegistration },
