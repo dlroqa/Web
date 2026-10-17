@@ -100,8 +100,8 @@ Only these paths reach Better Auth; every other `/api/auth/*` path is 404.
 | `POST /api/auth/sign-in/social` | exact Origin; **Turnstile** (action `login`); per-IP `login` limit; body rebuilt from `{provider, callbackURL ∈ allowlist, turnstileToken}`, so scopes, id tokens, and redirect URLs cannot be injected; the provider URL must be `https://accounts.google.com` or `https://github.com` |
 | `GET /api/auth/callback/{google,github}` | per-IP `login` limit; Better Auth validates state + PKCE; the redirect target is re-validated (our origin, allowlisted page, or `/login?error=<code>`) |
 | `POST /api/auth/sign-out` | exact Origin |
-| `GET /api/auth/passkey/generate-authenticate-options` | per-IP `passkey_login` limit |
-| `POST /api/auth/passkey/verify-authentication` | per-IP `passkey_login` limit; strict, bounded body; response reduced to `{signedIn:true}` (Better Auth's body contains the session token) |
+| `POST /api/auth/passkey/generate-authenticate-options` | exact Origin; strict body `{turnstileToken}`; **Turnstile** (action `login`) before the per-IP `passkey_login` limit (M3a); Better Auth receives its own GET; `GET` is `405` |
+| `POST /api/auth/passkey/verify-authentication` | a live challenge before the limiter (M3b: Better Auth's signed `better-auth-passkey` cookie and an unexpired challenge row, looked up read-only; otherwise `400`, a failed lookup `500`); per-IP `passkey_login` limit; strict, bounded body; response reduced to `{signedIn:true}` (Better Auth's body contains the session token) |
 | `GET /api/auth/passkey/generate-register-options` | principal (active/pending); per-user `security_write` limit; only `name` and `authenticatorAttachment` pass (`context` rejected: no passkey-first sign-up); Better Auth requires a **fresh** session |
 | `POST /api/auth/passkey/verify-registration` | principal; per-user limit; strict body (`createSession` rejected); response reduced to `{id}` |
 
@@ -232,12 +232,16 @@ when the user chooses "sign out everywhere".
 
 ## Turnstile
 
-Used only at `POST /api/auth/sign-in/social` (OAuth start, which is also
-sign-up), verified server-side before Better Auth runs. The OAuth redirect
-and callback are not wrapped. Passkey sign-in has no Turnstile (it requires
-possession of a registered credential and is IP rate limited). Authenticated
-requests never see a challenge. The widget is rendered explicitly (action
-`login`, `interaction-only` appearance).
+Used at `POST /api/auth/sign-in/social` (OAuth start, which is also
+sign-up) and `POST /api/auth/passkey/generate-authenticate-options` (passkey
+sign-in options, M3a), verified server-side before the limiter and Better
+Auth. The OAuth redirect and callback are not wrapped. Passkey verification
+has no Turnstile of its own: it needs a live challenge, which only the
+Turnstile-protected options request issues (M3b). Authenticated requests
+never see a challenge. One widget (action `login`, `interaction-only`
+appearance) serves every sign-in button on the login page; it is rendered
+whenever a passkey or OAuth button is shown. A token is single use, so the
+page resets the widget after each failed or cancelled attempt.
 
 | Environment | Site key | Secret |
 |---|---|---|

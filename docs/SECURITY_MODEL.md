@@ -293,10 +293,21 @@ without a valid token costs no Durable Object request or write and uses up
 none of the client's allowance; a valid token is single-use and still has
 to pass the limit. Requests that fail Turnstile are bounded only by the
 Worker's own request limits; each costs one Siteverify call (5 s timeout,
-bounded response) and nothing else. Passkey options
-and verification, and the OAuth callbacks, are limited before Better Auth
-runs (so no passkey challenge or verification row is written for a refused
-request). An OAuth callback without a `state` parameter, or without Better
+bounded response) and nothing else. Passkey sign-in options follow the
+same order (origin → body → client identity → Turnstile → `passkey_login`
+limiter → Better Auth's GET; M3a), so an options request without a passing
+token costs no Durable Object request and writes no challenge. Passkey
+verification reaches the limiter only with a live challenge (M3b,
+`src/worker/auth/passkey-challenge.ts`): Better Auth's signed challenge
+cookie, read with better-call's parser (the one Better Auth uses; first
+duplicate wins) and verified under Better Auth's secret, and an unexpired
+challenge row for its token, looked up read-only (one SELECT; never
+`findVerificationValue`, which deletes expired rows). Anything else gets the
+`400` Better Auth would give, without a Durable Object request; a failed
+lookup is a `500`. Better Auth still checks the ceremony type and the
+assertion, and consumes the challenge atomically (`DELETE … RETURNING`).
+Limited requests write no challenge or verification row. The OAuth
+callbacks are limited before Better Auth runs. An OAuth callback without a `state` parameter, or without Better
 Auth's state cookie (`lightagent.state`, `__Secure-` prefixed over HTTPS;
 the name comes from Better Auth's configuration), cannot succeed and is
 redirected to `/login?error=state_not_found` / `state_mismatch` (the codes
@@ -311,7 +322,9 @@ subjects). Exact quotas (e.g. profiles per user) are enforced in D1.
 ## Turnstile
 
 `src/worker/security/turnstile.ts`. Attached to OAuth sign-in start
-(`POST /api/auth/sign-in/social`, action `login`).
+(`POST /api/auth/sign-in/social`) and passkey sign-in options
+(`POST /api/auth/passkey/generate-authenticate-options`), both action
+`login`.
 
 - Verification is server-side via Siteverify (5 s timeout, no redirects,
   response size bounded and schema-validated).

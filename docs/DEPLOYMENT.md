@@ -766,3 +766,19 @@ Open before production (each a separate approval gate):
 - M5: custom domain with a WAF rate-limiting rule in front of the Worker.
 - On Workers Free, an IP-rotating client can still exhaust the account-wide
   Durable Object allowance (fail closed: sign-in unavailable until 00:00 UTC).
+
+#### 2026-10-17: P1 records pushed; validation `81ead6f0` (no upload)
+
+`deploy/staging` fast-forwarded `6f570c6..92e3899` (U2 record `bea9728`,
+P1 record and script fix `b690ccf`, offline regression test for the P1
+script `92e3899`). Workers Builds `81ead6f0-7980-4518-8423-ce6479f4ba75`
+(dry run):
+
+| Step | Result |
+|---|---|
+| `protocol:verify` | r4 compatibility digest `454066f8…29a43`, 11 hashed files; all checksums OK |
+| `typecheck` | `tsc -b` clean |
+| `npm test` | 46 files / 1,075 tests passed, including `tests/static/p1-bounded-tests.test.ts` (5) |
+| `build`, `test:build` | both Vite environments built; 12/12, `staging build config verified` |
+| Deploy command | sha256 `73fda913…` (the 429-character guarded dry run); `staging config verified`; `--dry-run: exiting now.`; module table and total upload identical to U2 |
+| Live afterwards | deployment `b64a2fa9`, carrier `7750a63c` 100%, newest version `6b397259`, previews off, 0 `AuthRateLimiter` objects, no pending D1 migration |

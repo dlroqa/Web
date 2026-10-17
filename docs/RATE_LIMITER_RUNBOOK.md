@@ -46,8 +46,10 @@ the Free limits.
 
 - Sign-in start reaches the Durable Object only with a valid, single-use
   Turnstile token (M1). OAuth callbacks reach it only with a `state` and the
-  state cookie (M2). Passkey options and verification reach it without
-  Turnstile (M3, before public production).
+  state cookie (M2). Passkey options reach it only with a valid Turnstile
+  token (M3a), passkey verification only with a live, unused challenge
+  (M3b). Clients that solve Turnstile from many addresses can still spend
+  the allowance (M5).
 - Each Durable Object call is one request; a refusal writes nothing. An
   admission is one INSERT and one later DELETE; `setAlarm` (one billed
   write) runs at most once per admission and, for an active counter, at
@@ -158,4 +160,4 @@ staging smoke test, and record the deployment id.
 | Workers Paid upgrade (optional) | operator | operator's decision; never activates anything |
 | P1 activation | operator | separate approval, against the preflight above |
 | Rollback | operator or Claude | pre-approved for the stop conditions above |
-| Public production (M3, M5, other policies) | operator | separate approval |
+| Public production (M3 activated, M5, other policies) | operator | separate approval |
