@@ -673,3 +673,22 @@ characters, sha256 checked).
 Second attempt: this documentation-only commit, pushed while the upload
 command is saved, starts a new build that uploads the inactive version.
 Its application code and configuration are those of `2d17143`.
+
+Result (signed off 2026-10-17): Builds `4ad16fa2-a397-4ae5-80f3-4282132ab3c6`
+on `6f570c6` ran the full pipeline (r4 digest `454066f8…29a43`, `tsc -b`
+clean, 45 files / 1,070 tests, `test:build` 12/12, both configuration
+checks), then the guarded `versions upload` (Deploy command sha256
+`795220c2…`, checked byte for byte before the push).
+
+| | |
+|---|---|
+| F1 version | `6b397259-8c4d-4462-9269-8423e21402b5` (#23, 13:43:05Z, message `F1 2d17143 limiter`), **0%** |
+| Active version | carrier `7750a63c-fd3d-424e-a2c7-feb062cd4633`, **100%** (deployment `d2b7c623` unchanged) |
+| Artifact | Wrangler module table (10 modules, 786.40 KiB) and total upload (2,230.38 KiB / gzip 479.97 KiB) identical to the merged-head validation `4026cc56`; no updated asset files |
+| Bindings | `DB` `3cc0724d-…`, `AUTH_RATE_LIMITER` → `AuthRateLimiter`, `RL_*` 2001–2007, staging vars, existing secrets; migration tag `v1-auth-rate-limiter` |
+| Preview URLs | `previews_enabled: false`; version and `deploy-staging` alias hostnames 404 |
+| Durable Objects / D1 / production | 0 `AuthRateLimiter` objects; no pending migrations; no production Worker |
+
+Deploy command restored to the dry run straight after (429 characters,
+sha256 `73fda913…`). `6b397259` replaces `0fbd01ba` as the P1 candidate;
+P1 needs separate approval (see [RATE_LIMITER_RUNBOOK.md](RATE_LIMITER_RUNBOOK.md)).
