@@ -17,8 +17,9 @@ import { AuthoritativeRateLimiter, CloudflareRateLimiter } from "../../src/worke
 import type { AuthRateLimiter } from "../../src/worker/security/rate-limit-do";
 import { createLogger } from "../../src/worker/utils/log";
 import { randomId } from "../../src/worker/utils/random";
-import { FakeProviders, identity, signIn, type Identity } from "../helpers/auth";
+import { FakeProviders, identity, send, signIn, type Identity } from "../helpers/auth";
 import { CookieJar } from "../helpers/cookies";
+import { SoftAuthenticator } from "../helpers/webauthn";
 import { BASE, call, testEnv } from "../helpers/worker";
 
 const approveAll: RateLimit = { limit: async () => ({ success: true }) };
@@ -405,6 +406,169 @@ describe("passkey sign-in options: Turnstile before the limiter (M3a)", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("60");
     expect(siteverifyCalls()).toBe(0);
+  });
+});
+
+describe("passkey verification: a live challenge before the limiter (M3b)", () => {
+  /** BETTER_AUTH_SECRET of the test environment (vitest.config.ts). */
+  const TEST_SECRET = "test-only-better-auth-secret-0123456789abcdef";
+  const OTHER_SECRET = "another-secret-of-sufficient-length-0123456789";
+  const encoder = new TextEncoder();
+  /** A well-formed assertion for a credential nobody enrolled. */
+  const UNKNOWN_CREDENTIAL = { response: { id: "AAAA", rawId: "AAAA", type: "public-key", response: { clientDataJSON: "e30", authenticatorData: "AAAA", signature: "AAAA" } } };
+
+  /** A better-call signed cookie value for `token`, made independently of the code under test. */
+  async function signedValue(token: string, secret = TEST_SECRET): Promise<string> {
+    const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(token)));
+    return encodeURIComponent(`${token}.${btoa(String.fromCharCode(...mac))}`);
+  }
+
+  /** A browser holding a live challenge from the options endpoint, and the challenge cookie's name. */
+  async function liveChallenge(environment: Env): Promise<{ browser: CookieJar; name: string; options: { challenge: string } }> {
+    const browser = new CookieJar();
+    const response = await passkeyOptions({ "cf-connecting-ip": freshIp() }, environment);
+    expect(response.status).toBe(200);
+    browser.store(response);
+    const name = browser.names().find((n) => n.endsWith("better-auth-passkey"));
+    if (!name) throw new Error("no challenge cookie");
+    return { browser, name, options: (await response.json()) as { challenge: string } };
+  }
+
+  const verify = (cookie: string, environment: Env, body: unknown = UNKNOWN_CREDENTIAL) =>
+    call(
+      "/api/auth/passkey/verify-authentication",
+      { method: "POST", headers: { origin: BASE, "content-type": "application/json", "cf-connecting-ip": freshIp(), cookie }, body: JSON.stringify(body) },
+      { env: environment },
+    );
+
+  /** Sign a user in with Google and enroll a passkey through the real endpoints. */
+  async function enrolledUser(environment: Env): Promise<SoftAuthenticator> {
+    const jar = new CookieJar();
+    await signIn(providers, identity("google"), jar, { env: environment });
+    const authenticator = new SoftAuthenticator("localhost", BASE);
+    const options = await call("/api/auth/passkey/generate-register-options?name=Key", { headers: { cookie: jar.header() } }, { env: environment });
+    jar.store(options);
+    const credential = await authenticator.register((await options.json()) as { challenge: string });
+    expect((await send("POST", "/api/auth/passkey/verify-registration", jar, { response: credential, name: "Key" }, { env: environment })).status).toBe(200);
+    return authenticator;
+  }
+
+  const preconditionFailures = (reason: string) =>
+    logLines.filter((line) => line.includes('"auth.passkey.login.failure"') && line.includes('"precondition"') && line.includes(`"${reason}"`)).length;
+
+  it("a missing, malformed, forged or unknown challenge never reaches the Durable Object", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const { name } = await liveChallenge(environment);
+    const before = calls.length;
+    const cases: Array<[string, string]> = [
+      ["missing", ""],
+      ["malformed", `${name}=no-signature`],
+      ["malformed", `${name}=${encodeURIComponent(`${randomId("tok")}.${"A".repeat(44)}`)}`], // 44 characters, no trailing "="
+      ["bad_signature", `${name}=${await signedValue(randomId("tok"), OTHER_SECRET)}`],
+      ["bad_signature", `${name}=${encodeURIComponent(`${randomId("tok")}.${"A".repeat(43)}=`)}`],
+      ["not_found", `${name}=${await signedValue(randomId("tok"))}`], // correctly signed, but never issued
+    ];
+    for (const [, cookie] of cases) {
+      const response = await verify(cookie, environment);
+      expect(response.status).toBe(400);
+      expect(await codeOf(response)).toBe("INVALID_REQUEST");
+      expect(response.headers.getSetCookie()).toEqual([]);
+    }
+    expect(calls.length).toBe(before);
+    for (const reason of ["missing", "malformed", "bad_signature", "not_found"]) {
+      expect(preconditionFailures(reason)).toBe(cases.filter(([r]) => r === reason).length);
+    }
+  });
+
+  it("an expired challenge is refused without the Durable Object, and the check deletes nothing", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const { name } = await liveChallenge(environment);
+    const before = calls.length;
+    const token = randomId("tok");
+    const other = randomId("tok");
+    const past = new Date(Date.now() - 60_000).toISOString();
+    for (const identifier of [token, other]) {
+      await env.DB.prepare(`INSERT INTO "verification" ("id", "identifier", "value", "expiresAt", "createdAt", "updatedAt") VALUES (?1, ?2, ?3, ?4, ?4, ?4)`)
+        .bind(randomId("ver"), identifier, JSON.stringify({ type: "authentication", expectedChallenge: "x", userData: { id: "" } }), past)
+        .run();
+    }
+    const response = await verify(`${name}=${await signedValue(token)}`, environment);
+    expect(response.status).toBe(400);
+    expect(calls.length).toBe(before);
+    expect(preconditionFailures("expired")).toBe(1);
+    // findVerificationValue would have deleted every expired row; the read-only lookup deleted none.
+    const left = await env.DB.prepare(`SELECT COUNT(*) AS n FROM "verification" WHERE "identifier" IN (?1, ?2)`).bind(token, other).first<{ n: number }>();
+    expect(left?.n).toBe(2);
+  });
+
+  it("a live challenge is admitted and consumed by Better Auth; replaying it never reaches the Durable Object", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const authenticator = await enrolledUser(environment);
+    const { browser, options } = await liveChallenge(environment);
+    const assertion = await authenticator.authenticate(options);
+    const before = calls.length;
+    expect((await verify(browser.header(), environment, { response: assertion })).status).toBe(200);
+    expect(calls.length).toBe(before + 1);
+    const replay = await verify(browser.header(), environment, { response: assertion });
+    expect(replay.status).toBe(400);
+    expect(calls.length).toBe(before + 1);
+    expect(preconditionFailures("not_found")).toBe(1);
+  }, 30_000);
+
+  it("concurrent verifications of one challenge: Better Auth lets exactly one through", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const authenticator = await enrolledUser(environment);
+    const { browser, options } = await liveChallenge(environment);
+    const assertion = await authenticator.authenticate(options);
+    const before = calls.length;
+    const responses = await Promise.all(Array.from({ length: 5 }, () => verify(browser.header(), environment, { response: assertion })));
+    expect(responses.map((r) => r.status).sort((a, b) => a - b)).toEqual([200, 400, 400, 400, 400]);
+    expect(calls.length - before).toBeGreaterThanOrEqual(1);
+    expect(calls.length - before).toBeLessThanOrEqual(5);
+  }, 30_000);
+
+  it("with two challenge cookies of one name, the check reads the one Better Auth reads (the first)", async () => {
+    const { namespace, calls } = countingNamespace();
+    const environment = permissive({ AUTH_RATE_LIMITER: namespace });
+    const { browser, name } = await liveChallenge(environment);
+    const live = browser.get(name) ?? "";
+    const forged = await signedValue(randomId("tok"), OTHER_SECRET);
+    const before = calls.length;
+    // Forged first: refused by the check, as Better Auth's getSignedCookie would refuse it.
+    expect((await verify(`${name}=${forged}; ${name}=${live}`, environment)).status).toBe(400);
+    expect(calls.length).toBe(before);
+    // Live first: admitted, and Better Auth consumes that same challenge (then finds no such credential: 401).
+    const rows = await challengeRows();
+    expect((await verify(`${name}=${live}; ${name}=${forged}`, environment)).status).toBe(401);
+    expect(calls.length).toBe(before + 1);
+    expect(await challengeRows()).toBe(rows - 1);
+  });
+
+  it("fails closed without the Durable Object when the challenge lookup fails (D1)", async () => {
+    const { name } = await liveChallenge(permissive());
+    const { namespace, calls } = countingNamespace();
+    const failing = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (sql: string) => {
+            if (sql.includes("verification")) throw new Error("D1_ERROR: simulated outage");
+            return target.prepare(sql);
+          };
+        }
+        const value: unknown = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const response = await verify(`${name}=${await signedValue(randomId("tok"))}`, permissive({ AUTH_RATE_LIMITER: namespace, DB: failing }));
+    expect(response.status).toBe(500);
+    expect(await codeOf(response)).toBe("INTERNAL_ERROR");
+    expect(calls).toEqual([]);
+    expect(logged("auth.passkey.precheck_failed")).toBe(true);
   });
 });
 

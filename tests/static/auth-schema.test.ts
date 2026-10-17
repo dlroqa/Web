@@ -23,4 +23,12 @@ describe("Better Auth schema", () => {
     expect(pkg.dependencies["@better-auth/passkey"]).toMatch(/^\d+\.\d+\.\d+$/);
     expect(pkg.dependencies["@better-auth/passkey"]).toBe(pkg.dependencies["better-auth"]);
   });
+
+  it("pins better-call to the version Better Auth itself uses (the passkey pre-check mirrors its cookies)", () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { dependencies: Record<string, string> };
+    const lock = JSON.parse(readFileSync("package-lock.json", "utf8")) as { packages: Record<string, { version?: string; dependencies?: Record<string, string> }> };
+    expect(pkg.dependencies["better-call"]).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(lock.packages["node_modules/better-auth"]?.dependencies?.["better-call"]).toBe(pkg.dependencies["better-call"]);
+    expect(lock.packages["node_modules/better-call"]?.version).toBe(pkg.dependencies["better-call"]);
+  });
 });

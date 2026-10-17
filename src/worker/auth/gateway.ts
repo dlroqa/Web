@@ -11,7 +11,7 @@
  *   GET  /callback/{google,github}            state precondition, IP limit, redirect target re-validated
  *   POST /sign-out
  *   POST /passkey/generate-authenticate-options   Turnstile, IP limit (Better Auth sees its GET)
- *   POST /passkey/verify-authentication           IP limit, body bounded
+ *   POST /passkey/verify-authentication           live challenge, IP limit, body bounded
  *   GET  /passkey/generate-register-options       principal, user limit
  *   POST /passkey/verify-registration             principal, user limit
  *
@@ -33,6 +33,7 @@ import { readSecret } from "../config/secrets";
 import { readBoundedText } from "../utils/fetch";
 import { AUTH_BASE_PATH } from "./options";
 import { passkeyAuditFields, type PasskeyIdentity } from "./passkey-audit";
+import { betterAuthChallengeSource, passkeyChallengeFailure, type PasskeyChallengeFailure } from "./passkey-challenge";
 import { createAuthServices, type AuthServices, type SessionDenial } from "./services";
 
 /** Local pages a sign-in may return to (from the shared page policy). Anything else is rejected. */
@@ -325,7 +326,24 @@ async function passkeyAuthenticateOptions(ctx: RequestContext, s: AuthServices):
   return finish(ctx, upstream, await upstream.json());
 }
 
+/**
+ * Passkey verification spends a limiter request only with a live challenge
+ * (passkey-challenge.ts): a missing, forged, used or expired one gets the
+ * answer Better Auth would give (400) without reaching the Durable Object.
+ * If the check cannot be made (D1), the request is refused.
+ */
 async function passkeyVerifyAuthentication(ctx: RequestContext, s: AuthServices): Promise<Response> {
+  let failure: PasskeyChallengeFailure | null;
+  try {
+    failure = await passkeyChallengeFailure(ctx.request.headers.get("cookie"), await betterAuthChallengeSource(s.auth));
+  } catch (error) {
+    ctx.logger.error("auth.passkey.precheck_failed", { errorName: error instanceof Error ? error.name : typeof error });
+    throw new ApiError("INTERNAL_ERROR", { logReason: "passkey challenge lookup failed" });
+  }
+  if (failure) {
+    ctx.logger.warn("auth.passkey.login.failure", { stage: "precondition", reason: failure });
+    throw new ApiError("INVALID_REQUEST", { logReason: `passkey challenge ${failure}` });
+  }
   await enforceRateLimit(s.limiter, "passkey_login", { kind: "ip", address: clientAddress(ctx) });
   const body = parse(PasskeyAuthBody, await readJson(ctx.request));
   const upstream = await s.auth.handler(rebuild(ctx.request, ctx.url, body));
