@@ -24,7 +24,7 @@ export function turnstileNeeded(config: Pick<PublicConfig, "providers" | "turnst
   return config.turnstileSiteKey !== null && (config.providers.length > 0 || passkeyButton);
 }
 
-const SCRIPT_URL ="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+const SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 let loading: Promise<TurnstileApi> | null = null;
 
 export function loadTurnstile(): Promise<TurnstileApi> {
