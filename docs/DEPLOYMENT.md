@@ -782,3 +782,37 @@ script `92e3899`). Workers Builds `81ead6f0-7980-4518-8423-ce6479f4ba75`
 | `build`, `test:build` | both Vite environments built; 12/12, `staging build config verified` |
 | Deploy command | sha256 `73fda913…` (the 429-character guarded dry run); `staging config verified`; `--dry-run: exiting now.`; module table and total upload identical to U2 |
 | Live afterwards | deployment `b64a2fa9`, carrier `7750a63c` 100%, newest version `6b397259`, previews off, 0 `AuthRateLimiter` objects, no pending D1 migration |
+
+#### 2026-10-19: M3 hosted validation (I1) and integration (I3), no upload
+
+M3 (see [SECURITY_MODEL.md](SECURITY_MODEL.md) and
+[docs/plans/M3_IMPLEMENTATION_BLUEPRINT.md](plans/M3_IMPLEMENTATION_BLUEPRINT.md)):
+passkey sign-in options behind Turnstile before the limiter (M3a), passkey
+verification behind a read-only live-challenge check (M3b). No class,
+binding, migration or configuration change.
+
+I1: `m3/passkey-turnstile` pushed at `86ccad9` (no build: not the production
+branch, non-production builds off), Builds production branch temporarily set
+to it, then the empty trigger commit `83f46ab` (tree `d9d0baa`, the same as
+`86ccad9`) started Builds `d9f44e40-9cf2-4530-bc59-399a85271e7c`. Production
+branch restored to `deploy/staging` afterwards (no build).
+
+I3: `deploy/staging` fast-forwarded `92e3899..83f46ab` (the commit I1 built),
+Builds `759b2e91-aa87-4f0d-816c-1a410b305794`.
+
+| Step | I1 `d9f44e40` and I3 `759b2e91` |
+|---|---|
+| `protocol:verify` | r4 compatibility digest `454066f8…29a43`, 11 hashed files; all checksums OK |
+| `typecheck` | `tsc -b` clean |
+| `npm test` | 48 files / 1,107 tests passed; new: `auth-rate-limit` 34 (+11: M3a 5, M3b 6), `unit/passkey-challenge` 16, `client/passkeys` 4, `static/auth-schema` 3 (+1) |
+| `build`, `test:build` | both Vite environments built; 12/12, `staging build config verified` |
+| Deploy command | sha256 `73fda913…` (the 429-character guarded dry run); `staging config verified`; `--dry-run: exiting now.` |
+| Artifact | module table (10 modules, 786.40 KiB) and total upload 2,235.85 KiB / gzip 481.80 KiB; per-file test list, bindings and Vite output identical between I1 and I3 |
+| Live afterwards | deployment `b64a2fa9`, carrier `7750a63c` 100%, newest version F1 `6b397259` at 0%, no M3 version, previews off, no pending D1 migration |
+
+U3 (separately approved): this documentation-only commit, pushed while the
+Deploy command is the guard + `npx wrangler versions upload --env staging
+--message "M3 83f46ab passkey"` (459 characters), starts a new build that
+uploads M3 as an inactive version. Its application code and configuration
+are those of `83f46ab`. A Retry of an earlier build would rerun that build's
+Deploy command instead.
