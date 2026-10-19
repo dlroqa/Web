@@ -816,3 +816,26 @@ Deploy command is the guard + `npx wrangler versions upload --env staging
 uploads M3 as an inactive version. Its application code and configuration
 are those of `83f46ab`. A Retry of an earlier build would rerun that build's
 Deploy command instead.
+
+#### 2026-10-19: U3 (inactive upload of M3, closed)
+
+Deploy command switched to the guard + `npx wrangler versions upload --env
+staging --message "M3 83f46ab passkey"` (459 characters, sha256
+`daddba22…02ae`, checked byte for byte), then the documentation commit
+`ac34c77` (application tree `d9d0baa`, as validated in I1/I3) pushed to
+`deploy/staging`: Builds `62732fda-b390-4282-b06c-fed62abd5604`.
+
+| | |
+|---|---|
+| CI | Node 22.23.3; r4 digest `454066f8…29a43`, all checksums OK; `tsc -b` clean; 48 files / 1,107 tests; both Vite builds; `test:build` 12/12, `staging build config verified`; guard `staging config verified` |
+| M3 version | `8137e138-f6e4-41a9-a0da-c90ae04c6d78` (#24, 12:54:21Z, message `M3 83f46ab passkey`, alias `deploy-staging`), **0%** |
+| Active | deployment `b64a2fa9` unchanged: carrier `7750a63c-fd3d-424e-a2c7-feb062cd4633` **100%**; F1 `6b397259` 0% |
+| Artifact | per-file test list, module table (10 modules, 786.40 KiB), bindings and Vite output identical to I1/I3; total upload 2,235.85 KiB / gzip 481.80 KiB |
+| Bindings | 25, the same as `6b397259`: `DB` `3cc0724d-…`, `AUTH_RATE_LIMITER` → `AuthRateLimiter`, `RL_*` 2001–2007, staging vars and secrets; migration tag `v1-auth-rate-limiter` |
+| Preview URLs | `previews_enabled: false`; version and `deploy-staging` alias hostnames 404 |
+| D1 / Durable Objects / production | no pending migrations; no stored Durable Object data; no production Worker |
+
+Deploy command restored to the dry run straight after (429 characters,
+sha256 `73fda913…`, checked byte for byte). P2 (bounded activation of
+`8137e138`, rollback `7750a63c`) needs separate approval:
+[plans/P2_RUNBOOK.md](plans/P2_RUNBOOK.md).
