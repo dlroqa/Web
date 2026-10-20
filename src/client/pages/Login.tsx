@@ -1,9 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { api, ApiRequestError, type PublicConfig } from "../lib/api";
 import { PasskeyCancelled, passkeysSupported, signInWithPasskey } from "../lib/passkeys";
 import { safeReturnPath, usePageTitle, useRouter } from "../lib/router";
 import { useSession } from "../lib/session";
-import { loadTurnstile, turnstileNeeded } from "../lib/turnstile";
+import {
+  loadTurnstile,
+  nextTurnstileState,
+  signInBlocked,
+  turnstileNeeded,
+  turnstileRetryable,
+  turnstileStatus,
+  TURNSTILE_SLOW_MS,
+  type TurnstileState,
+} from "../lib/turnstile";
 import { Alert } from "../components/ui";
 import { GitHubMark, GoogleMark, KeyIcon, LogoMark } from "../components/icons";
 
@@ -27,6 +36,24 @@ function subtitle(providers: Array<"google" | "github">): string {
   return names.length === 0 ? "Use your passkey to sign in." : `Use a passkey, or continue with your ${names.join(" or ")} account.`;
 }
 
+/** The verification state under the sign-in buttons, with a retry once it failed. */
+export function TurnstileStatus({ state, onRetry, disabled }: { state: TurnstileState; onRetry: () => void; disabled: boolean }) {
+  const text = turnstileStatus(state);
+  if (text === null) return null;
+  return (
+    <>
+      <p className="muted small" role="status" aria-live="polite">
+        {text}
+      </p>
+      {turnstileRetryable(state) ? (
+        <button type="button" className="button button-ghost" onClick={onRetry} disabled={disabled}>
+          Try the verification check again
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 export function Login() {
   usePageTitle("Sign in");
   const { search, navigate } = useRouter();
@@ -42,8 +69,10 @@ export function Login() {
   });
   const [busy, setBusy] = useState<"passkey" | "google" | "github" | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileState, turnstileEvent] = useReducer(nextTurnstileState, "loading");
   const widgetRef = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | null>(null);
+  const widgetNeeded = config !== null && turnstileNeeded(config, config.passkeys && passkeysSupported());
 
   useEffect(() => {
     if (session.state === "signed-in") navigate(returnTo, { replace: true });
@@ -67,27 +96,64 @@ export function Login() {
           sitekey: siteKey,
           action: "login",
           appearance: "interaction-only",
-          callback: (token: string) => setTurnstileToken(token),
-          "expired-callback": () => setTurnstileToken(null),
-          "error-callback": () => setTurnstileToken(null),
+          callback: (token: string) => {
+            setTurnstileToken(token);
+            turnstileEvent("token");
+          },
+          "expired-callback": () => {
+            setTurnstileToken(null);
+            turnstileEvent("expired");
+          },
+          // Returns nothing (not "handled"), so the widget still retries on its own.
+          "error-callback": () => {
+            setTurnstileToken(null);
+            turnstileEvent("error");
+          },
+          "timeout-callback": () => {
+            setTurnstileToken(null);
+            turnstileEvent("timeout");
+          },
+          "unsupported-callback": () => turnstileEvent("unsupported"),
+          "before-interactive-callback": () => turnstileEvent("interactive"),
+          "after-interactive-callback": () => turnstileEvent("interacted"),
         });
+        turnstileEvent("rendered");
       })
-      .catch(() => setMessage({ tone: "error", text: "The verification check couldn't load. Please refresh the page." }));
+      .catch(() => {
+        turnstileEvent("error");
+        setMessage({ tone: "error", text: "The verification check couldn't load. Please refresh the page." });
+      });
     return () => {
       cancelled = true;
+      // Leaving the page: no callback may outlive it, and a later visit renders afresh.
+      if (widgetId.current) window.turnstile?.remove(widgetId.current);
+      widgetId.current = null;
     };
   }, [config]);
 
+  // No token long after the widget started loading: say so instead of waiting silently.
+  useEffect(() => {
+    if (!widgetNeeded || (turnstileState !== "loading" && turnstileState !== "pending")) return;
+    const timer = window.setTimeout(() => turnstileEvent("slow"), TURNSTILE_SLOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [widgetNeeded, turnstileState]);
+
+  // Same widget, new challenge: reset never renders a second widget.
   const resetTurnstile = () => {
     setTurnstileToken(null);
+    turnstileEvent("reset");
     if (widgetId.current) window.turnstile?.reset(widgetId.current);
   };
 
+  /** True when a sign-in button must wait for a token; the page then says why. */
+  function waitForTurnstile(): boolean {
+    const blocked = signInBlocked(turnstileState, turnstileToken);
+    if (blocked) setMessage(blocked);
+    return blocked !== null;
+  }
+
   async function oauth(provider: "google" | "github") {
-    if (!turnstileToken) {
-      setMessage({ tone: "info", text: "Just a moment while we verify your browser." });
-      return;
-    }
+    if (waitForTurnstile()) return;
     setBusy(provider);
     setMessage(null);
     try {
@@ -105,10 +171,7 @@ export function Login() {
       setMessage({ tone: "error", text: "The verification check couldn't load. Please refresh the page." });
       return;
     }
-    if (!turnstileToken) {
-      setMessage({ tone: "info", text: "Just a moment while we verify your browser." });
-      return;
-    }
+    if (waitForTurnstile() || !turnstileToken) return;
     setBusy("passkey");
     setMessage(null);
     try {
@@ -173,7 +236,8 @@ export function Login() {
               <span>{busy === "github" ? "Redirecting to GitHub…" : "Continue with GitHub"}</span>
             </button>
           ) : null}
-          <div ref={widgetRef} className="turnstile" aria-label="Browser verification" />
+          <div ref={widgetRef} className="turnstile" aria-label="Browser verification" data-turnstile-state={turnstileState} />
+          {widgetNeeded ? <TurnstileStatus state={turnstileState} onRetry={resetTurnstile} disabled={busy !== null} /> : null}
         </div>
 
         <p className="fineprint muted">New here? Signing in creates your account. Adding an agent is a separate step.</p>
