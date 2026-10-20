@@ -896,3 +896,98 @@ Deploy command is the guard + `npx wrangler versions upload --env staging
 `7bc4f573…60ad`), starts a build that uploads M3.1 as an inactive version.
 Its application code and configuration are those of `da81018`. A repeat P2
 with the new version needs separate approval.
+
+#### 2026-10-20: U4 (inactive upload of M3.1, closed)
+
+Deploy command switched to the guard + `npx wrangler versions upload --env
+staging --message "M3.1 da81018 turnstile"` (463 characters, sha256
+`7bc4f573…60ad`), then the documentation commit `9f53581` (application tree
+`src` `cde18d7c`, identical to `da81018`) pushed to `deploy/staging`: Builds
+`19318799-97da-4f04-9a20-09f64a29ee49`.
+
+| | |
+|---|---|
+| CI | Node 22.23.3; r4 digest `454066f8…29a43`, 12 checksums OK; `tsc -b` clean; 51 files / 1,130 tests; both Vite builds; `test:build` 12/12; guard `staging config verified` |
+| Deploy command | executed command byte-identical to the approved U4 command; one `Worker Version ID` |
+| M3.1 version | `53df313c-316b-4a63-94e8-fba73ac7a2b6` (#25, 11:22:07Z, message `M3.1 da81018 turnstile`, alias `deploy-staging`), **0%** |
+| Artifact | per-file test list, bindings, module table (10 modules, 786.40 KiB) and Vite output identical to `7ae86271`; total upload 2,235.85 KiB |
+| Bindings | 25, identical to carrier `7750a63c` (`DB` `3cc0724d-…`, `AUTH_RATE_LIMITER` → `AuthRateLimiter`); migration tag `v1-auth-rate-limiter` |
+| Active / previews / D1 | deployment `f0ba4a73` unchanged, carrier `7750a63c` 100%; `previews_enabled: false`, version and alias hostnames 404; no pending migrations |
+
+Deploy command restored to the dry run straight after (429 characters,
+sha256 `73fda913…`; confirmed in the dashboard by the operator; the next
+build's log is the byte-level evidence).
+
+#### 2026-10-20: P2 repeat on M3.1 (Safari) and P2b (Chrome, Google): PASS
+
+Same runbook, hard stops and budgets as the first window
+([plans/P2_RUNBOOK.md](plans/P2_RUNBOOK.md)); candidate `53df313c`, rollback
+`7750a63c`. Each window: fresh T−2 preflight, unfiltered tail proven with a
+probe, deployment watcher; promotion and rollback by the operator in the
+dashboard; T+0 = the deployment's `created_on`.
+
+| | P2 repeat | P2b |
+|---|---|---|
+| Activation (T+0) | deployment `0efeb284` (`P2 M3.1 53df313c`), **11:44:30.081Z** | deployment `34678667` (`P2b M3.1 53df313c`), **12:40:36.032Z** |
+| Rollback | deployment `385625ee`, carrier `7750a63c` 100%, **12:05:37.007Z** (T+21:07; deadline 12:06:30Z) | deployment `a22aba0c`, carrier `7750a63c` 100%, **12:53:45.407Z** (T+13:09; target T+15, deadline 13:02:36Z) |
+| Smoke | `GET /` 200, `GET /api/me` 401 by `53df313c`; after rollback by `7750a63c` | the same |
+| Bounded script | `DONE: 50 requests` (11:45:17–26Z): S1–S7 as expected, no 429, no Durable Object invocation | not repeated (accepted) |
+| Browsers | Safari 17.6 macOS: **PASS**; Safari iOS: **PASS** | Chrome 155 macOS 14.8.7: **PASS** (native iCloud Keychain); Google OAuth: **PASS** |
+| Tail | 0 exceptions, 0 5xx, 0 429, no `ratelimit.authoritative_failed` / `auth.passkey.precheck_failed` | the same |
+
+Browser detail:
+
+- **Safari macOS**: the page showed "Please complete the verification
+  check below." (`data-turnstile-state` `interactive`); after the checkbox,
+  `ready`. Continue with passkey → "Waiting for your passkey…" → native
+  sheet; a cancelled attempt showed the "No passkey was used…" message and
+  the widget returned to `ready`; two sign-ins (options 200, verify 200),
+  Security page, sign-outs. No Console errors.
+- **Safari iOS** (synced iCloud credential): three sign-ins and sign-outs.
+- **Chrome macOS**: `ready`; the existing iCloud Keychain passkey (Touch ID)
+  was offered natively, so the iPhone QR fallback was not needed and not
+  exercised; two sign-ins and sign-outs. Console messages came only from
+  the Turnstile challenge frame (`data:` blocked by that frame's own
+  `connect-src`, a WOFF2 warning, "No available adapters"); none from the
+  application.
+- **Google OAuth** (Chrome): sign-in start 200 → Google → callback 302 →
+  dashboard → sign-out 200.
+
+Root cause of the first P2 failure confirmed (H1): for that browser the
+`interaction-only` widget required the checkbox before issuing a token, and
+the M3 page showed nothing, so the passkey button looked inert. M3.1 shows
+the state; with a token, every browser completed the flow.
+
+Usage (account-wide, whole UTC day, Workers Free; staging the only Worker
+with traffic):
+
+| | Before the repeat (11:42Z) | After P2 repeat (12:19Z) | After P2b (13:01Z) | Hard stop per window |
+|---|---|---|---|---|
+| Worker requests (0 errors) | 78 | 190 (+112) | 232 (+42) | +400 |
+| Durable Object requests | 0 | 15 (+15) | 25 (+10) | +100 |
+| Durable Object rows written | 0 | 23 (+23) | 39 (+16) | +300 |
+| D1 rows written | 0 | 113 (+113) | 181 (+68) | +1,000 |
+
+D1: audit rows for every sign-in (passkey ×7, Google ×1) and sign-out; no
+sessions left; the test passkey `P2 test – Safari macOS (iCloud)` kept
+(1 row; retained for later staging tests). Durable Object namespace: counter
+data cleared by the cleanup alarm after each window (no stored data at
+12:13Z and 13:08Z).
+
+**Judgment: P2 PASS for M3.1 `53df313c`** (Safari macOS, Safari iOS,
+Chrome macOS, Google OAuth; bounded security script). Carrier `7750a63c`
+remains at 100%; `53df313c` stays at 0% until a separately approved
+promotion.
+
+Not covered, or still open:
+
+- Chrome with the iPhone QR (hybrid) fallback; Edge and Firefox; GitHub
+  sign-in (optional).
+- Real-browser click tests cannot run in the hosted pipeline (Node client
+  project, no DOM); Safari and Chrome behaviour is operator-verified only.
+- Authoritative (Durable Object) limits cover `login`, `signup` and
+  `passkey_login` only; `recovery`, `provision`, `read` and
+  `security_write` still rely on the Workers Rate Limiting bindings, which
+  did not enforce on staging (cloudflare/workers-sdk#16097).
+- Analytics lag and the small GraphQL budget make account usage
+  supporting evidence, not proof; the tail can drop events under load.
