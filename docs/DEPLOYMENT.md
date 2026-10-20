@@ -839,3 +839,60 @@ Deploy command restored to the dry run straight after (429 characters,
 sha256 `73fda913…`, checked byte for byte). P2 (bounded activation of
 `8137e138`, rollback `7750a63c`) needs separate approval:
 [plans/P2_RUNBOOK.md](plans/P2_RUNBOOK.md).
+
+#### 2026-10-20: P2 (bounded activation of M3, hard stop, rolled back)
+
+Fresh T−2 preflight at 09:57Z (carrier `7750a63c` 100%; `8137e138` #24 and
+`6b397259` #23 at 0%; identical 25 bindings and migration tag
+`v1-auth-rate-limiter`; previews off; no pending D1 migration; one test
+passkey; script `scripts/p2-bounded-tests.sh` sha256 `473f0ec3…` as built
+by `75971857`). Unfiltered tail and deployment watcher verified with a
+probe.
+
+| | |
+|---|---|
+| Activation (T+0) | deployment `8c368f71` (dashboard, `P2 M3 8137e138`), `8137e138` 100%, **10:13:08.805Z**; rollback deadline 10:35:08Z |
+| Smoke | `GET /` 200, `GET /api/me` 401, both served by `8137e138` |
+| Bounded script (10:15:30–39Z) | `DONE: 50 requests`: S1–S7 as expected, no 429 in S3/S4; tail: 0 Durable Object invocations, 0 exceptions, 0 5xx |
+| Safari 17.6 macOS passkey | **hard stop**: Continue with passkey showed no passkey sheet and no visible change; no options request reached the Worker (two `/login` loads with `/api/config` and `/api/session` only; Worker analytics +61 = 55 scripted + 6 browser) |
+| Not run | Safari iOS, Chrome, Google regression |
+| Rollback | deployment `f0ba4a73` (dashboard, `P2 rollback`), carrier `7750a63c` 100%, **10:32:45.686Z** (T+19:37); `GET /` 200, `GET /api/me` 401 served by `7750a63c` |
+| Usage in the window | Worker requests +61, 0 errors; Durable Object requests 0, rows written 0; D1 rows written 0; no audit rows; Durable Object namespace: 2 objects, no stored data |
+
+Server-side M3 controls behaved as specified; P2 failed on the client. The
+login page gave no indication of the Turnstile widget's state (an
+`interaction-only` widget is normally invisible; error and expiry cleared
+the token silently; timeout, unsupported and interactive states were not
+handled), so a sign-in button pressed without a token could appear inert.
+Whether the token was missing (H1) or the click never reached the handler
+(H2) is still open; the repeat P2 records `data-turnstile-state`.
+
+#### 2026-10-20: M3.1 (Turnstile state on the login page, validated)
+
+`da81018` (client only: `src/client/lib/turnstile.ts`,
+`src/client/pages/Login.tsx`, `tests/client/turnstile-state.test.tsx`):
+every widget callback is handled, a 15-second watchdog turns a silent wait
+into a visible timeout, a status line (`role="status"`) and a retry that
+resets the same widget, the widget is removed on unmount, and passkey and
+OAuth buttons share one gate (no token, no request). Server code,
+configuration, migrations and r4 are unchanged.
+
+`deploy/staging` fast-forwarded `a93c1b4..da81018`, Builds
+`7ae86271-6487-49f5-80f4-60779e02c6f2`:
+
+| Step | |
+|---|---|
+| `protocol:verify` | r4 digest `454066f8…29a43`, 12 checksums OK |
+| `typecheck` | `tsc -b` clean |
+| `npm test` | 51 files / 1,130 tests passed; new: `client/turnstile-state` 15 (the only change to the test list) |
+| `build`, `test:build` | both Vite environments built; 12/12 |
+| Deploy command | sha256 `73fda913…` (guarded dry run, byte-identical); `staging config verified`; `--dry-run: exiting now.`; no version uploaded |
+| Artifact | bindings and module table (10 modules, 786.40 KiB) identical to `75971857`; total upload 2,235.85 KiB; only the client bundle changed (`index-3FeYA4VP.js`, 263.45 kB) |
+| Live afterwards | deployment `f0ba4a73`, carrier `7750a63c` 100%, newest version `8137e138` (#24) at 0% |
+
+U4 (separately approved): this documentation-only commit, pushed while the
+Deploy command is the guard + `npx wrangler versions upload --env staging
+--message "M3.1 da81018 turnstile"` (463 characters, sha256
+`7bc4f573…60ad`), starts a build that uploads M3.1 as an inactive version.
+Its application code and configuration are those of `da81018`. A repeat P2
+with the new version needs separate approval.
